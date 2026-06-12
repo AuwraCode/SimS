@@ -33,9 +33,13 @@ export interface NetEdge {
   vmax: number;
   klass: RoadClass;
   isBridge: boolean;
+  /** Grid column of the bridge this edge belongs to; −1 for non-bridges. */
+  bridgeCol: number;
   /** 0 = vertical (NS street), 1 = horizontal (EW street). */
   axis: 0 | 1;
   freeFlowS: number;
+  /** Live closure flag (scenario: "close a road"). Cars only; sidewalks stay open. */
+  closed: boolean;
 }
 
 export interface Network {
@@ -45,7 +49,16 @@ export interface Network {
   rows: number;
 }
 
-export type AgentMode = "car" | "offroad";
+export type AgentMode = "car" | "walk" | "wfh";
+
+export type TripKind = "toWork" | "toErrand" | "errandReturn" | "toHome";
+
+export interface ErrandPlan {
+  /** Planned departure from work (s of day). */
+  departS: number;
+  dwellS: number;
+  node: number;
+}
 
 export interface Agent {
   id: number;
@@ -56,13 +69,51 @@ export interface Agent {
   workStartS: number;
   workDurS: number;
   bufferS: number;
-  /** Planned departure: workStart − freeFlow(route) − buffer. */
+  /** Planned first departure: workStart − expected travel − buffer. */
   departS: number;
-  /** Free-flow travel time along the chosen route (s). */
+  /** Expected (free-flow) travel time of the morning leg, set during planning. */
   freeFlowS: number;
+  errand: ErrandPlan | null;
   /** IDM heterogeneity. */
   v0mul: number;
   T: number;
-  /** Edge-id path home→work (null for offroad agents). */
+  /** Walking pace (m/s) for walk-mode agents. */
+  walkSpeed: number;
+  /** Route-choice taste: multiplier on arterial edge costs. */
+  affinity: number;
+  /** Most recently dispatched route (display/trace only). */
   route: Int32Array | null;
+  /** Synthetic measurement trips (headless probes) skip day-chaining. */
+  probe?: boolean;
+}
+
+/** A planned leg, sitting in the scheduler's event heap. */
+export interface TripEvent {
+  timeS: number;
+  seq: number;
+  agentId: number;
+  kind: TripKind;
+  from: number;
+  to: number;
+}
+
+/** A routed car leg waiting in a driveway queue for road space. */
+export interface SpawnRequest {
+  agentId: number;
+  kind: TripKind;
+  from: number;
+  to: number;
+  route: Int32Array;
+  freeFlowS: number;
+  plannedS: number;
+}
+
+export interface TripArrival {
+  agentId: number;
+  kind: TripKind;
+  mode: AgentMode;
+  plannedDepartS: number;
+  arriveS: number;
+  freeFlowS: number;
+  dest: number;
 }

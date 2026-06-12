@@ -3,10 +3,11 @@ import { Metrics } from "./metrics";
 import { buildNetwork } from "./network";
 import { buildPopulation } from "./population";
 import { makeStream } from "./rng";
-import { assignRoutes } from "./routing";
+import { Router } from "./routing";
 import { Scheduler } from "./scheduler";
 import { TrafficEngine } from "./traffic/engine";
 import type { Agent, Network } from "./types";
+import { WalkSystem } from "./walkers";
 
 /**
  * Framework-agnostic simulation façade: everything the browser front-end or
@@ -17,15 +18,20 @@ export interface Simulation {
   net: Network;
   agents: Agent[];
   engine: TrafficEngine;
+  walk: WalkSystem;
+  scheduler: Scheduler;
   metrics: Metrics;
   /** Current sim time, seconds of day. */
   readonly t: number;
   readonly tick: number;
   step(nSteps: number): void;
-  /** True once the day is over and the road has drained. */
+  /** True once the day is over and every chained trip has finished. */
   isDone(): boolean;
-  /** Inject a synthetic trip now (headless probes). Returns its agent id. */
+  /** Inject a synthetic one-way trip now (headless probes). Returns its agent id. */
   injectTrip(home: number, work: number): number;
+  /** Acceptance experiment #2: close / reopen the arterial bridge mid-run. */
+  setArterialBridgeClosed(closed: boolean): void;
+  arterialBridgeClosed(): boolean;
   /** FNV-1a hash of all dynamic state — the determinism fingerprint. */
   hashState(): string;
 }
@@ -33,21 +39,28 @@ export interface Simulation {
 export function createSimulation(cfg: SimsConfig): Simulation {
   const worldRng = makeStream(cfg.seed, "worldgen");
   const popRng = makeStream(cfg.seed, "population");
-  const probeRng = makeStream(cfg.seed, "probes");
 
   const net = buildNetwork(cfg, worldRng);
   const agents = buildPopulation(cfg, net, popRng);
-  assignRoutes(cfg, net, agents, popRng);
+  const router = new Router(cfg, net);
+  finalizePlans(cfg, agents, router);
 
-  const engine = new TrafficEngine(cfg, net, agents);
-  const scheduler = new Scheduler(cfg, agents, engine);
-  const metrics = new Metrics(cfg);
+  const walk = new WalkSystem(net);
+  const engine = new TrafficEngine(cfg, net, agents, router);
+  const scheduler = new Scheduler(cfg, net, agents, engine, walk, router);
+  const metrics = new Metrics(cfg, net);
+
+  const arterialBridgeEdges = net.edges
+    .filter((e) => e.isBridge && cfg.network.arterialCols.includes(e.bridgeCol))
+    .map((e) => e.id);
 
   return {
     cfg,
     net,
     agents,
     engine,
+    walk,
+    scheduler,
     metrics,
     get t() {
       return scheduler.t;
@@ -58,7 +71,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
     step(nSteps: number): void {
       for (let s = 0; s < nSteps; s++) {
         scheduler.step();
-        metrics.update(scheduler.t, engine);
+        metrics.update(scheduler.t, engine, walk, scheduler);
       }
     },
     isDone(): boolean {
@@ -66,7 +79,8 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         scheduler.t >= cfg.sim.dayEndS &&
         engine.activeCount === 0 &&
         engine.waitingCount === 0 &&
-        scheduler.pendingDepartures === 0
+        walk.count === 0 &&
+        scheduler.pendingTrips === 0
       );
     },
     injectTrip(home: number, work: number): number {
@@ -81,16 +95,24 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         bufferS: 0,
         departS: scheduler.t,
         freeFlowS: 0,
+        errand: null,
         v0mul: 1,
         T: (cfg.idm.TMin + cfg.idm.TMax) / 2,
+        walkSpeed: 1.4,
+        affinity: 1,
         route: null,
+        probe: true,
       };
       agents.push(agent);
-      assignRoutes(cfg, net, [agent], probeRng);
-      agent.departS = scheduler.t; // probes leave NOW, whatever routing planned
       engine.registerAgent(agent);
-      engine.requestSpawn(id);
+      scheduler.push(scheduler.t, id, "toWork", home, work);
       return id;
+    },
+    setArterialBridgeClosed(closed: boolean): void {
+      engine.setEdgesClosed(arterialBridgeEdges, closed, scheduler.t);
+    },
+    arterialBridgeClosed(): boolean {
+      return net.edges[arterialBridgeEdges[0]].closed;
     },
     hashState(): string {
       let h = 0x811c9dc5;
@@ -112,12 +134,22 @@ export function createSimulation(cfg: SimsConfig): Simulation {
       mix(scheduler.tick);
       mix(engine.activeCount);
       mix(engine.arrivedCount);
-      mix(engine.bridgeCrossings);
+      mix(walk.count);
+      mix(scheduler.pendingTrips);
       engine.forEachActive((slot) => {
         mix(engine.agentOf[slot]);
         mixF(engine.pos[slot]);
         mixF(engine.vel[slot]);
       });
+      walk.forEach((agentId, edgeId, posM) => {
+        mix(agentId);
+        mix(edgeId);
+        mixF(posM);
+      });
+      for (let i = 0; i < scheduler.workersAt.length; i++) {
+        mix(scheduler.workersAt[i]);
+        mix(scheduler.residentsAt[i]);
+      }
       for (const trip of metrics.trips) {
         mix(trip.agentId);
         mixF(trip.arriveS);
@@ -125,4 +157,29 @@ export function createSimulation(cfg: SimsConfig): Simulation {
       return (h >>> 0).toString(16).padStart(8, "0");
     },
   };
+}
+
+/**
+ * Turn sampled plans into concrete departures. Walk-preferrers whose commute
+ * is too long become drivers; everyone gets departS = workStart − expected
+ * travel (free-flow — what people assume when planning) − personal buffer.
+ */
+function finalizePlans(cfg: SimsConfig, agents: Agent[], router: Router): void {
+  for (const agent of agents) {
+    if (agent.mode === "walk") {
+      const wr = router.walkRoute(agent.home, agent.work);
+      const dist = wr !== null ? router.routeLengthM(wr) : Number.POSITIVE_INFINITY;
+      if (dist > cfg.population.walk.maxDistM) {
+        agent.mode = "car";
+      } else {
+        agent.freeFlowS = dist / agent.walkSpeed;
+      }
+    }
+    if (agent.mode === "car") {
+      const r = router.routeFreeFlow(agent.home, agent.work, agent);
+      agent.freeFlowS = r !== null ? router.routeFreeFlowS(r) : 0;
+    }
+    if (agent.mode === "wfh") continue;
+    agent.departS = Math.max(0, agent.workStartS - agent.freeFlowS - agent.bufferS);
+  }
 }

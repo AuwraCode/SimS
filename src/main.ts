@@ -30,7 +30,7 @@ if (urlWarp !== null) {
 const cityCanvas = document.getElementById("city") as HTMLCanvasElement;
 let renderer = new CityRenderer(cityCanvas, sim.net, cfg);
 
-const colors = config.render.colors;
+const colors = config.render;
 const tripsChart = new TimeChart(
   document.getElementById("chartTrips") as HTMLCanvasElement,
   colors.chartLine,

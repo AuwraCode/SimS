@@ -1,72 +1,111 @@
 import type { SimsConfig } from "../config";
-import { hash2, normalClamped, type Rng } from "./rng";
+import { hash2 } from "./rng";
 import type { Agent, Network } from "./types";
 
 /**
- * Route choice, Phase 1: shortest path on free-flow travel times.
+ * Route choice, Phase 2: congestion-aware shortest paths.
  *
- * If every agent picked the literal cost-optimal path, the grid's many
- * exactly-equal "staircase" paths would collapse onto one street and produce
- * unrealistic herding. Two per-agent perturbations spread the flow instead —
- * both are *route-choice heterogeneity* (people weight roads differently),
- * never traffic control:
+ * Every edge keeps an exponential moving average of the travel times REAL
+ * vehicles just experienced on it (the engine reports each traversal). A
+ * driver departing now routes on those observed costs, decayed toward free
+ * flow as observations go stale — so jams repel newcomers onto parallel
+ * streets, which is exactly how route choice behaves in a real city, and a
+ * negative feedback loop that spreads congestion across alternatives.
  *
- *  1. tie noise: a stateless ±tieNoise hash of (agent, edge) on every edge
- *     cost, which randomizes the choice among equal-cost paths;
- *  2. arterialAffinity ~ N(1, σ): a per-agent multiplier on arterial costs —
- *     some drivers love the big roads, some avoid them — peeling a share of
- *     traffic onto parallel locals.
+ * Anti-herding heterogeneity (so equal drivers don't all flip to the same
+ * "best" alternative simultaneously):
+ *   1. tie noise: a stateless ±tieNoise hash of (agent, edge) on every cost;
+ *   2. per-agent arterialAffinity ~ N(1, σ): some drivers love big roads,
+ *      some avoid them.
  *
- * Congestion-aware re-routing arrives in Phase 2; Phase 1 routes are fixed
- * for the day, so jams punish everyone who planned through them (visibly).
+ * None of this reads the clock: costs come from what vehicles measured,
+ * perturbations from per-agent taste. Walkers route by plain distance and
+ * ignore closures (sidewalks stay open).
  */
-export function assignRoutes(cfg: SimsConfig, net: Network, agents: Agent[], rng: Rng): void {
-  const p = cfg.population;
-  const dijkstra = makeDijkstra(net);
+export class Router {
+  private readonly emaS: Float64Array;
+  private readonly lastObsT: Float64Array;
+  readonly ffS: Float64Array;
+  private readonly dijkstra: Dijkstra;
+  private readonly tieNoise: number;
+  private readonly alpha: number;
+  private readonly tau: number;
 
-  for (const agent of agents) {
-    // Sample affinity for every agent (keeps the rng layout independent of mode).
-    const affinity = normalClamped(
-      rng,
-      1,
-      p.arterialAffinitySigma,
-      p.arterialAffinityClamp[0],
-      p.arterialAffinityClamp[1],
-    );
-    if (agent.mode !== "car") continue;
+  constructor(
+    cfg: SimsConfig,
+    private readonly net: Network,
+  ) {
+    const m = net.edges.length;
+    this.ffS = new Float64Array(m);
+    for (let e = 0; e < m; e++) this.ffS[e] = net.edges[e].freeFlowS;
+    this.emaS = Float64Array.from(this.ffS);
+    this.lastObsT = new Float64Array(m).fill(-1e12);
+    this.dijkstra = makeDijkstra(net);
+    this.tieNoise = cfg.population.tieNoise;
+    this.alpha = cfg.routing.emaAlpha;
+    this.tau = cfg.routing.decayTauS;
+  }
 
-    const cost = (edgeId: number): number => {
-      const e = net.edges[edgeId];
-      const noise = 1 + p.tieNoise * (hash2(agent.id, edgeId) - 0.5) * 2;
-      const aff = e.klass === "arterial" ? affinity : 1;
-      return e.freeFlowS * noise * aff;
-    };
+  /** Engine reports every completed edge traversal here. */
+  observe(edgeId: number, travelS: number, t: number): void {
+    const cur = this.expected(edgeId, t);
+    this.emaS[edgeId] = cur + this.alpha * (travelS - cur);
+    this.lastObsT[edgeId] = t;
+  }
 
-    const route = dijkstra(agent.home, agent.work, cost);
-    if (route === null) {
-      // Unreachable should be impossible (graph is strongly connected).
-      agent.mode = "offroad";
-      continue;
-    }
-    agent.route = route;
+  /** Expected travel time now: observation EMA decayed toward free flow. */
+  expected(edgeId: number, t: number): number {
+    const ff = this.ffS[edgeId];
+    const age = t - this.lastObsT[edgeId];
+    if (age > 6 * this.tau) return ff;
+    return ff + (this.emaS[edgeId] - ff) * Math.exp(-age / this.tau);
+  }
 
-    // Free-flow time uses UNPERTURBED costs: it is the honest physical
-    // baseline used for departure planning and later for delay metrics.
-    let freeFlow = 0;
-    for (const id of route) freeFlow += net.edges[id].freeFlowS;
-    agent.freeFlowS = freeFlow;
+  /** Congestion-aware car route; returns null only if dest is unreachable (all paths closed). */
+  route(from: number, to: number, agent: Agent, t: number): Int32Array | null {
+    return this.dijkstra(from, to, (edgeId) => {
+      const e = this.net.edges[edgeId];
+      if (e.closed) return Number.POSITIVE_INFINITY;
+      const noise = 1 + this.tieNoise * (hash2(agent.id, edgeId) - 0.5) * 2;
+      const aff = e.klass === "arterial" ? agent.affinity : 1;
+      return this.expected(edgeId, t) * noise * aff;
+    });
+  }
 
-    // Agents target their arrival time: leave early enough at free-flow speed
-    // plus a personal safety buffer. When congestion builds, "early enough"
-    // stops being enough — lateness is an emergent outcome, not an input.
-    agent.departS = Math.max(0, agent.workStartS - freeFlow - agent.bufferS);
+  /** Plan-time route on free-flow costs (what an agent EXPECTS when scheduling the day). */
+  routeFreeFlow(from: number, to: number, agent: Agent): Int32Array | null {
+    return this.dijkstra(from, to, (edgeId) => {
+      const e = this.net.edges[edgeId];
+      const noise = 1 + this.tieNoise * (hash2(agent.id, edgeId) - 0.5) * 2;
+      const aff = e.klass === "arterial" ? agent.affinity : 1;
+      return this.ffS[edgeId] * noise * aff;
+    });
+  }
+
+  /** Pedestrian route: plain shortest distance; closures don't apply to sidewalks. */
+  walkRoute(from: number, to: number): Int32Array | null {
+    return this.dijkstra(from, to, (edgeId) => this.net.edges[edgeId].lengthM);
+  }
+
+  /** Unperturbed free-flow seconds along a route — the honest delay baseline. */
+  routeFreeFlowS(route: Int32Array): number {
+    let s = 0;
+    for (const id of route) s += this.ffS[id];
+    return s;
+  }
+
+  routeLengthM(route: Int32Array): number {
+    let s = 0;
+    for (const id of route) s += this.net.edges[id].lengthM;
+    return s;
   }
 }
 
 type CostFn = (edgeId: number) => number;
+type Dijkstra = (from: number, to: number, cost: CostFn) => Int32Array | null;
 
 /** Dijkstra with a tiny binary heap, reusing scratch arrays across calls. */
-function makeDijkstra(net: Network) {
+function makeDijkstra(net: Network): Dijkstra {
   const n = net.nodes.length;
   const dist = new Float64Array(n);
   const prevEdge = new Int32Array(n);
@@ -122,9 +161,11 @@ function makeDijkstra(net: Network) {
       if (v === to) break;
       const d = dist[v];
       for (const edgeId of net.nodes[v].outEdges) {
+        const c = cost(edgeId);
+        if (c === Number.POSITIVE_INFINITY) continue;
         const next = net.edges[edgeId].to;
         if (settled[next] === 1) continue;
-        const nd = d + cost(edgeId);
+        const nd = d + c;
         if (nd < dist[next]) {
           dist[next] = nd;
           prevEdge[next] = edgeId;

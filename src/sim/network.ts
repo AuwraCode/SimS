@@ -64,7 +64,14 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
   }
 
   // --- Edges (every street = two directed edges) ---
-  const addPair = (a: number, b: number, klass: RoadClass, axis: 0 | 1, isBridge: boolean) => {
+  const addPair = (
+    a: number,
+    b: number,
+    klass: RoadClass,
+    axis: 0 | 1,
+    isBridge: boolean,
+    bridgeCol: number,
+  ) => {
     const lanes = isBridge ? 1 : cfg.network.lanesPerClass[klass];
     const vmax = cfg.network.speeds[klass];
     const dx = nodes[b].x - nodes[a].x;
@@ -83,8 +90,10 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
         vmax,
         klass,
         isBridge,
+        bridgeCol,
         axis,
         freeFlowS: lengthM / vmax,
+        closed: false,
       };
       edges.push(e);
       nodes[from].outEdges.push(e.id);
@@ -94,14 +103,21 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
 
   for (let row = 0; row < n.rows; row++) {
     for (let col = 0; col + 1 < n.cols; col++) {
-      addPair(nodeId(col, row), nodeId(col + 1, row), rowClass(row), 1, false);
+      addPair(nodeId(col, row), nodeId(col + 1, row), rowClass(row), 1, false, -1);
     }
   }
   for (let col = 0; col < n.cols; col++) {
     for (let row = 0; row + 1 < n.rows; row++) {
       const crossesRiver = row === n.riverNorthRow;
       if (crossesRiver && !isBridgeCol(col)) continue; // the river: no edge here
-      addPair(nodeId(col, row), nodeId(col, row + 1), colClass(col), 0, crossesRiver);
+      addPair(
+        nodeId(col, row),
+        nodeId(col, row + 1),
+        colClass(col),
+        0,
+        crossesRiver,
+        crossesRiver ? col : -1,
+      );
     }
   }
 

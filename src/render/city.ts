@@ -5,6 +5,25 @@ import { isApproachGreen } from "../sim/traffic/junction";
 import type { Network } from "../sim/types";
 import { makeSpeedRamp, rampColor } from "./colors";
 
+/** Transitional 2D style constants (this renderer is being replaced by render3d). */
+const STYLE = {
+  paddingPx: 24,
+  laneOffsetPx: 3,
+  signalDotPx: 2.4,
+  vehiclePx: 3.2,
+  roadWidthPx: { arterial: 5, local: 2.5 } as Record<string, number>,
+  colors: {
+    road: "#3a4150",
+    roadArterial: "#4a5366",
+    river: "#1d3a55",
+    cbdTint: "rgba(79,163,255,0.07)",
+    hubTint: "rgba(255,196,79,0.08)",
+    signalGreen: "#3dd68c",
+    signalRed: "#ff5d5d",
+    traceRoute: "#4fa3ff",
+  },
+};
+
 /**
  * Top-down canvas view: a prerendered static layer (river, zones, roads) and
  * a dynamic pass per frame (signal states, every vehicle colored by speed,
@@ -47,7 +66,7 @@ export class CityRenderer {
     this.staticLayer.width = this.canvas.width;
     this.staticLayer.height = this.canvas.height;
     const b = networkBounds(this.net);
-    const pad = this.cfg.render.paddingPx * dpr;
+    const pad = STYLE.paddingPx * dpr;
     this.scale = Math.min(
       (this.canvas.width - 2 * pad) / (b.x1 - b.x0),
       (this.canvas.height - 2 * pad) / (b.y1 - b.y0),
@@ -67,7 +86,7 @@ export class CityRenderer {
   private renderStatic(): void {
     const ctx = this.staticLayer.getContext("2d");
     if (ctx === null) return;
-    const { colors } = this.cfg.render;
+    const { colors } = STYLE;
     const dpr = window.devicePixelRatio || 1;
     ctx.clearRect(0, 0, this.staticLayer.width, this.staticLayer.height);
 
@@ -104,7 +123,7 @@ export class CityRenderer {
       const ox = ((-dy / len) * off) / this.scale;
       const oy = ((dx / len) * off) / this.scale;
       ctx.strokeStyle = e.klass === "arterial" ? colors.roadArterial : colors.road;
-      ctx.lineWidth = this.cfg.render.roadWidthPx[e.klass] * dpr * (e.isBridge ? 0.8 : 1);
+      ctx.lineWidth = STYLE.roadWidthPx[e.klass] * dpr * (e.isBridge ? 0.8 : 1);
       ctx.beginPath();
       ctx.moveTo(this.sx(a.x + ox), this.sy(a.y + oy));
       ctx.lineTo(this.sx(b.x + ox), this.sy(b.y + oy));
@@ -115,7 +134,7 @@ export class CityRenderer {
   /** Screen-space perpendicular offset (px) separating the two directions. */
   private edgeScreenOffset(_edgeId: number): number {
     const dpr = window.devicePixelRatio || 1;
-    return this.cfg.render.laneOffsetPx * dpr;
+    return STYLE.laneOffsetPx * dpr;
   }
 
   draw(sim: Simulation, traceAgentId: number | null): void {
@@ -126,7 +145,7 @@ export class CityRenderer {
     ctx.drawImage(this.staticLayer, 0, 0);
 
     // Signal states: a small two-arm marker per signalized junction.
-    const { colors, signalDotPx } = this.cfg.render;
+    const { colors, signalDotPx } = STYLE;
     const s = signalDotPx * dpr;
     for (const node of this.net.nodes) {
       if (node.signal === null) continue;
@@ -162,7 +181,7 @@ export class CityRenderer {
     }
 
     // Every vehicle, colored by v relative to its edge's speed limit.
-    const v = this.cfg.render.vehiclePx * dpr;
+    const v = STYLE.vehiclePx * dpr;
     const engine = sim.engine;
     engine.forEachActive((slot, edge) => {
       const a = this.net.nodes[edge.from];

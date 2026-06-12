@@ -1,11 +1,14 @@
 /**
  * Headless full-day run of the simulation core in Node — proof that sim/ is
- * framework-agnostic, plus the calibration & determinism harness:
+ * framework-agnostic, plus the calibration, acceptance & determinism harness:
  *
- *   pnpm headless                 one seeded day, summary table
- *   pnpm headless --seed 7        different world
- *   pnpm headless --n 3000        population override
- *   pnpm headless --check         run twice, compare state hashes (determinism)
+ *   pnpm headless                    one seeded day, summary table
+ *   pnpm headless --seed 7           different world
+ *   pnpm headless --n 3000           population override
+ *   pnpm headless --check            run twice, compare state hashes
+ *   pnpm headless --flatten          experiment #1: uniform schedules → peaks must vanish
+ *   pnpm headless --close [H]        experiment #2: close arterial bridge at hour H (default 7.75)
+ *   pnpm headless --boost F          experiment #3: population ×F (default 1.5)
  */
 import { cloneConfig } from "../src/config";
 import { createSimulation, type Simulation } from "../src/sim/sim";
@@ -14,14 +17,33 @@ interface Args {
   seed: number;
   n: number | undefined;
   check: boolean;
+  flatten: boolean;
+  closeAtH: number | null;
+  boost: number | null;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { seed: cloneConfig().seed, n: undefined, check: false };
+  const args: Args = {
+    seed: cloneConfig().seed,
+    n: undefined,
+    check: false,
+    flatten: false,
+    closeAtH: null,
+    boost: null,
+  };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--seed") args.seed = Number(argv[++i]);
-    else if (argv[i] === "--n") args.n = Number(argv[++i]);
-    else if (argv[i] === "--check") args.check = true;
+    const a = argv[i];
+    if (a === "--seed") args.seed = Number(argv[++i]);
+    else if (a === "--n") args.n = Number(argv[++i]);
+    else if (a === "--check") args.check = true;
+    else if (a === "--flatten") args.flatten = true;
+    else if (a === "--close") {
+      const next = Number(argv[i + 1]);
+      args.closeAtH = Number.isFinite(next) ? Number(argv[++i]) : 7.75;
+    } else if (a === "--boost") {
+      const next = Number(argv[i + 1]);
+      args.boost = Number.isFinite(next) ? Number(argv[++i]) : 1.5;
+    }
   }
   return args;
 }
@@ -32,42 +54,54 @@ const fmtT = (s: number): string => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
-interface DayResult {
-  hash: string;
-  wallMs: number;
+interface WindowStats {
   peakActive: number;
   peakActiveT: number;
   minSpeed: number;
   minSpeedT: number;
-  offPeakSpeed: number;
-  maxBridgeFlow: number;
-  maxStuck: number;
-  arrivals: number;
-  meanDelayS: number;
-  p90DelayS: number;
-  probeRatios: number[];
-  gridlockWarn: boolean;
 }
 
-function runDay(seed: number, n: number | undefined): { res: DayResult; sim: Simulation } {
-  const cfg = cloneConfig({ seed, n });
-  const sim: Simulation = createSimulation(cfg);
-  const t0 = performance.now();
+function windowStats(sim: Simulation, h0: number, h1: number, minActive: number): WindowStats {
+  const m = sim.metrics;
+  const w: WindowStats = {
+    peakActive: 0,
+    peakActiveT: 0,
+    minSpeed: Number.POSITIVE_INFINITY,
+    minSpeedT: 0,
+  };
+  for (let i = 0; i < m.timesS.length; i++) {
+    const t = m.timesS[i];
+    if (t < h0 * 3600 || t > h1 * 3600) continue;
+    if (m.activeTrips[i] > w.peakActive) {
+      w.peakActive = m.activeTrips[i];
+      w.peakActiveT = t;
+    }
+    if (m.activeTrips[i] >= minActive && m.meanSpeedKmh[i] < w.minSpeed) {
+      w.minSpeed = m.meanSpeedKmh[i];
+      w.minSpeedT = t;
+    }
+  }
+  return w;
+}
+
+function runDay(args: Args): Simulation {
+  const n =
+    args.boost !== null ? Math.round((args.n ?? cloneConfig().population.N) * args.boost) : args.n;
+  const cfg = cloneConfig({ seed: args.seed, n, flatten: args.flatten });
+  const sim = createSimulation(cfg);
 
   const probeAtS = 3 * 3600;
   let probesInjected = false;
-  const probeIds: number[] = [];
-
-  const minutesPerDay = cfg.sim.dayEndS / 60;
+  let closed = false;
   const stepsPerMinute = Math.round(60 / cfg.sim.dt);
-  let gridlockWarn = false;
+  const maxMinutes = Math.round(25.5 * 60);
   let stuckRising = 0;
+  let gridlockWarned = false;
 
-  for (let minute = 0; minute < minutesPerDay; minute++) {
+  for (let minute = 0; minute < maxMinutes; minute++) {
     if (!probesInjected && sim.t >= probeAtS) {
       probesInjected = true;
-      // Three night probes: deep-south homes → CBD center. The population has
-      // essentially nobody on the road at 03:00, so these measure the
+      // Night probes: deep-south homes → CBD center, measuring the
       // infrastructure baseline (signals included, congestion absent).
       const south = sim.net.nodes.filter((nd) => !nd.north && nd.row >= 6);
       const cbdMid = sim.net.nodes.find(
@@ -76,22 +110,22 @@ function runDay(seed: number, n: number | undefined): { res: DayResult; sim: Sim
           nd.row === cfg.network.cbd.row1,
       );
       if (cbdMid !== undefined) {
-        for (const home of [
-          south[0],
-          south[Math.floor(south.length / 2)],
-          south[south.length - 1],
-        ]) {
-          probeIds.push(sim.injectTrip(home.id, cbdMid.id));
-        }
+        sim.injectTrip(south[0].id, cbdMid.id);
+        sim.injectTrip(south[Math.floor(south.length / 2)].id, cbdMid.id);
+        sim.injectTrip(south[south.length - 1].id, cbdMid.id);
       }
     }
+    if (args.closeAtH !== null && !closed && sim.t >= args.closeAtH * 3600) {
+      closed = true;
+      sim.setArterialBridgeClosed(true);
+      console.log(`>> arterial bridge CLOSED at ${fmtT(sim.t)}`);
+    }
     sim.step(stepsPerMinute);
-    // Gridlock telemetry: stuck-vehicle count rising for 15 straight minutes.
     const st = sim.metrics.stuck;
-    if (st.length >= 2 && (st[st.length - 1] ?? 0) > (st[st.length - 2] ?? 0)) {
+    if (st.length >= 2 && st[st.length - 1] > st[st.length - 2]) {
       stuckRising++;
-      if (stuckRising >= 15 && !gridlockWarn) {
-        gridlockWarn = true;
+      if (stuckRising >= 15 && !gridlockWarned) {
+        gridlockWarned = true;
         console.warn(`!! GRIDLOCK WARNING at ${fmtT(sim.t)}: stuck count rising 15 min straight`);
       }
     } else {
@@ -99,120 +133,107 @@ function runDay(seed: number, n: number | undefined): { res: DayResult; sim: Sim
     }
     if (sim.isDone()) break;
   }
-
-  const wallMs = performance.now() - t0;
-  const m = sim.metrics;
-
-  let peakActive = 0;
-  let peakActiveT = 0;
-  let minSpeed = Number.POSITIVE_INFINITY;
-  let minSpeedT = 0;
-  let maxBridgeFlow = 0;
-  let maxStuck = 0;
-  const offPeakSpeeds: number[] = [];
-  for (let i = 0; i < m.timesS.length; i++) {
-    const t = m.timesS[i];
-    const act = m.activeTrips[i];
-    const spd = m.meanSpeedKmh[i];
-    if (act > peakActive) {
-      peakActive = act;
-      peakActiveT = t;
-    }
-    // Morning window, with enough vehicles for the mean to be meaningful.
-    if (t >= 5 * 3600 && t <= 12 * 3600 && act >= 30 && spd < minSpeed) {
-      minSpeed = spd;
-      minSpeedT = t;
-    }
-    // Late off-peak reference: after the peak has drained, before the road empties.
-    if (t >= 9.75 * 3600 && t <= 13 * 3600 && act >= 3 && !Number.isNaN(spd)) {
-      offPeakSpeeds.push(spd);
-    }
-    if (m.bridgeFlowPerMin[i] > maxBridgeFlow) maxBridgeFlow = m.bridgeFlowPerMin[i];
-    if (m.stuck[i] > maxStuck) maxStuck = m.stuck[i];
-  }
-  const offPeakSpeed =
-    offPeakSpeeds.length > 0
-      ? offPeakSpeeds.reduce((a, b) => a + b, 0) / offPeakSpeeds.length
-      : Number.NaN;
-
-  const delays = m.trips
-    .filter((tr) => tr.agentId < (sim.cfg.population.N as number))
-    .map((tr) => tr.arriveS - tr.plannedDepartS - tr.freeFlowS)
-    .sort((a, b) => a - b);
-  const p90DelayS = delays.length > 0 ? delays[Math.floor(delays.length * 0.9)] : 0;
-
-  const probeRatios = probeIds.map((id) => {
-    const trip = m.trips.find((tr) => tr.agentId === id);
-    if (trip === undefined) return Number.NaN;
-    return trip.freeFlowS / (trip.arriveS - trip.plannedDepartS);
-  });
-
-  const res: DayResult = {
-    hash: sim.hashState(),
-    wallMs,
-    peakActive,
-    peakActiveT,
-    minSpeed,
-    minSpeedT,
-    offPeakSpeed,
-    maxBridgeFlow,
-    maxStuck,
-    arrivals: m.trips.length,
-    meanDelayS: m.meanDelayS(),
-    p90DelayS,
-    probeRatios,
-    gridlockWarn,
-  };
-  return { res, sim };
+  return sim;
 }
 
 function printTimeline(sim: Simulation): void {
   const m = sim.metrics;
-  console.log("\n time   active  speed km/h  bridge/min  stuck  waiting");
+  console.log("\n time   active  km/h   queue  brA/min brB/min  walk  atWork");
   for (let i = 0; i < m.timesS.length; i++) {
     const t = m.timesS[i];
-    if (t % 1800 !== 0) continue;
-    if (t < 5 * 3600 || t > 13 * 3600) continue;
-    const spd = Number.isNaN(m.meanSpeedKmh[i])
-      ? "    —"
-      : m.meanSpeedKmh[i].toFixed(1).padStart(5);
+    if (t % 1800 !== 0 || t < 5 * 3600 || t > 21.5 * 3600) continue;
+    const spd = Number.isNaN(m.meanSpeedKmh[i]) ? "   —" : m.meanSpeedKmh[i].toFixed(1).padStart(4);
     console.log(
-      ` ${fmtT(t)}  ${String(m.activeTrips[i]).padStart(5)}  ${spd}       ${m.bridgeFlowPerMin[i]
+      ` ${fmtT(t)} ${String(m.activeTrips[i]).padStart(6)}  ${spd}  ${String(m.queued[i]).padStart(
+        5,
+      )}  ${m.bridgeAFlow[i].toFixed(0).padStart(6)} ${m.bridgeBFlow[i]
         .toFixed(0)
-        .padStart(
-          5,
-        )}      ${String(m.stuck[i]).padStart(4)}  ${String(m.waitingDepart[i]).padStart(5)}`,
+        .padStart(7)} ${String(m.walkers[i]).padStart(5)} ${String(m.atWork[i]).padStart(7)}`,
     );
   }
 }
 
-const args = parseArgs(process.argv.slice(2));
-const { res: r1, sim: sim1 } = runDay(args.seed, args.n);
+function summarize(sim: Simulation, args: Args): string {
+  const m = sim.metrics;
+  const am = windowStats(sim, 5, 12, 30);
+  const pm = windowStats(sim, 14.5, 21, 30);
+  const all = windowStats(sim, 0, 24, 0);
 
+  let meanActive = 0;
+  let nSamples = 0;
+  for (let i = 0; i < m.timesS.length; i++) {
+    if (m.timesS[i] >= 5 * 3600 && m.timesS[i] <= 21 * 3600) {
+      meanActive += m.activeTrips[i];
+      nSamples++;
+    }
+  }
+  meanActive /= Math.max(1, nSamples);
+
+  const popN = sim.cfg.population.N;
+  const delays = m.trips
+    .filter((tr) => tr.mode === "car" && tr.agentId < popN)
+    .map((tr) => tr.arriveS - tr.plannedDepartS - tr.freeFlowS)
+    .sort((a, b) => a - b);
+  const p90 = delays.length > 0 ? delays[Math.floor(delays.length * 0.9)] : 0;
+
+  const probeRatios = sim.agents
+    .filter((a) => a.probe === true)
+    .map((a) => {
+      const trip = m.trips.find((tr) => tr.agentId === a.id);
+      if (trip === undefined) return Number.NaN;
+      return trip.freeFlowS / (trip.arriveS - trip.plannedDepartS);
+    });
+
+  let maxAtWork = 0;
+  let maxWalkers = 0;
+  let maxQueue = 0;
+  for (let i = 0; i < m.timesS.length; i++) {
+    if (m.atWork[i] > maxAtWork) maxAtWork = m.atWork[i];
+    if (m.walkers[i] > maxWalkers) maxWalkers = m.walkers[i];
+    if (m.queued[i] > maxQueue) maxQueue = m.queued[i];
+  }
+
+  const lines = [
+    `am peak active        ${am.peakActive}  at ${fmtT(am.peakActiveT)}   (min speed ${am.minSpeed.toFixed(1)} km/h at ${fmtT(am.minSpeedT)})`,
+    `pm peak active        ${pm.peakActive}  at ${fmtT(pm.peakActiveT)}   (min speed ${pm.minSpeed.toFixed(1)} km/h at ${fmtT(pm.minSpeedT)})`,
+    `peak/mean ratio       ${(all.peakActive / Math.max(1, meanActive)).toFixed(2)}  (flatten experiment should push this toward ~1–2)`,
+    `max queue / at work   ${maxQueue} / ${maxAtWork}`,
+    `walkers peak          ${maxWalkers}`,
+    `completed legs        ${m.trips.length}`,
+    `mean / p90 car delay  ${(m.meanDelayS() / 60).toFixed(1)} min / ${(p90 / 60).toFixed(1)} min`,
+    `03:00 probe speed     ${probeRatios.map((x) => x.toFixed(2)).join(", ")} × free-flow`,
+    `state hash            ${sim.hashState()}`,
+  ];
+  void args;
+  return lines.join("\n");
+}
+
+const args = parseArgs(process.argv.slice(2));
+const t0 = performance.now();
+const sim1 = runDay(args);
+const wall = ((performance.now() - t0) / 1000).toFixed(2);
+
+const tags = [
+  args.flatten ? "FLATTEN" : null,
+  args.closeAtH !== null ? `CLOSE@${args.closeAtH}` : null,
+  args.boost !== null ? `BOOST×${args.boost}` : null,
+]
+  .filter(Boolean)
+  .join(" ");
 console.log(
-  `\n=== SimS headless day — seed ${args.seed}${args.n !== undefined ? `, N ${args.n}` : ""} ===`,
+  `\n=== SimS headless day — seed ${args.seed}${args.n !== undefined ? `, N ${args.n}` : ""}${
+    tags.length > 0 ? ` [${tags}]` : ""
+  } ===`,
 );
 printTimeline(sim1);
-console.log(`peak active trips     ${r1.peakActive}  at ${fmtT(r1.peakActiveT)}`);
-console.log(`min mean speed (am)   ${r1.minSpeed.toFixed(1)} km/h  at ${fmtT(r1.minSpeedT)}`);
-console.log(`off-peak mean speed   ${r1.offPeakSpeed.toFixed(1)} km/h  (09:45–13:00 reference)`);
-console.log(`peak bridge flow      ${r1.maxBridgeFlow.toFixed(1)} veh/min (all bridge transfers)`);
-console.log(
-  `max stuck >5 min      ${r1.maxStuck}${r1.gridlockWarn ? "  !! gridlock warning fired" : ""}`,
-);
-console.log(`completed trips       ${r1.arrivals}`);
-console.log(
-  `mean / p90 delay      ${(r1.meanDelayS / 60).toFixed(1)} min / ${(r1.p90DelayS / 60).toFixed(1)} min`,
-);
-console.log(
-  `03:00 probe speed     ${r1.probeRatios.map((x) => x.toFixed(2)).join(", ")} × free-flow`,
-);
-console.log(`state hash            ${r1.hash}`);
-console.log(`wall time             ${(r1.wallMs / 1000).toFixed(2)} s`);
+console.log(summarize(sim1, args));
+console.log(`wall time             ${wall} s`);
 
 if (args.check) {
-  const { res: r2 } = runDay(args.seed, args.n);
-  const ok = r1.hash === r2.hash;
-  console.log(`\ndeterminism check     run2 hash ${r2.hash}  →  ${ok ? "MATCH" : "MISMATCH"}`);
+  const sim2 = runDay(args);
+  const ok = sim1.hashState() === sim2.hashState();
+  console.log(
+    `\ndeterminism check     run2 hash ${sim2.hashState()}  →  ${ok ? "MATCH" : "MISMATCH"}`,
+  );
   if (!ok) process.exit(1);
 }

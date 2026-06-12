@@ -133,8 +133,14 @@ export const config = {
    */
   population: {
     N: 5000,
-    /** Share of agents who drive; the rest work from home / walk (no road load). */
-    driverShare: 0.8,
+    /** Mode mixture: wfh stays home, walk-preferrers walk when the trip is short enough, the rest drive. */
+    modes: { wfh: 0.08, walkPref: 0.12 },
+    walk: {
+      /** Walk-preferrers whose home→work path is longer than this drive instead. */
+      maxDistM: 1700,
+      speedMin: 1.15,
+      speedMax: 1.6,
+    },
     /** Work start time ~ mixture of gaussians (the early / main / flexible-late workforce). */
     startMix: [
       { w: 0.15, mu: hm(6, 0), sigma: minutes(30) },
@@ -142,15 +148,52 @@ export const config = {
       { w: 0.15, mu: hm(9, 30), sigma: minutes(60) },
     ],
     startClampS: [hm(3, 30), hm(13, 0)] as [number, number],
-    /** Work duration (used by Phase 2 return trips; sampled now for stable RNG layout). */
-    workDur: { mu: hm(8, 30), sigma: minutes(60), min: hm(4), max: hm(11) },
+    /** Work duration; clamped so workStart + duration ≤ latestEnd (everyone is home before 24:00). */
+    workDur: { mu: hm(8, 30), sigma: minutes(35), min: hm(4), max: hm(11) },
+    latestEndS: hm(22, 30),
+    /** Midday errand: share of drivers who pop out of work to a shop and back. */
+    errand: {
+      share: 0.15,
+      afterMinS: hm(3, 0),
+      afterMaxS: hm(5, 30),
+      dwellMinS: minutes(15),
+      dwellMaxS: minutes(45),
+      /** Errand only happens if there is at least this much workday left after it. */
+      minRemainderS: hm(1, 30),
+    },
     /** Personal arrival buffer: depart = workStart − freeFlowTime − buffer. */
     buffer: { mu: minutes(8), sigma: minutes(4), min: 60, max: minutes(25) },
+    /** Minimum dwell before the next leg when a late arrival overruns the plan. */
+    chainGapS: minutes(12),
     /** Per-agent multiplier on arterial edge costs ~ N(1, sigma) — route-choice heterogeneity. */
     arterialAffinitySigma: 0.1,
     arterialAffinityClamp: [0.7, 1.4] as [number, number],
     /** Per-(agent,edge) cost noise amplitude for tie-breaking among equal grid paths. */
     tieNoise: 0.02,
+  },
+
+  /**
+   * Congestion-aware routing (Phase 2). Drivers route at departure on
+   * OBSERVED edge travel times (exponential averages of what real vehicles
+   * just experienced), decaying back to free flow as observations go stale.
+   * This is drivers reacting to traffic — traffic never reacts to the clock.
+   */
+  routing: {
+    /** EMA gain for each new edge-traversal observation. */
+    emaAlpha: 0.35,
+    /** Staleness decay back toward free flow (time constant, s). */
+    decayTauS: 600,
+    /** A vehicle stopped this long re-plans its remaining route… */
+    stuckRerouteS: 240,
+    /** …at most this many times per leg. */
+    maxReroutes: 3,
+  },
+
+  /** Acceptance-experiment switches (set via UI buttons / headless flags). */
+  scenario: {
+    /** Replace the work-start mixture with uniform across the day → peaks must vanish. */
+    flattenSchedules: false,
+    flattenRangeS: [hm(4, 0), hm(14, 0)] as [number, number],
   },
 
   metrics: {
@@ -162,34 +205,54 @@ export const config = {
     stuckThresholdS: 300,
   },
 
+  /** Ambient sky traffic — pure decoration on periodic loops (no demand coupling). */
+  ambient: {
+    planes: 3,
+    planeAltitudeM: 420,
+    planeSpeedMs: 80,
+  },
+
   render: {
-    vehiclePx: 3.2,
-    laneOffsetPx: 3.0,
-    roadWidthPx: { arterial: 5, local: 2.5 },
-    signalDotPx: 2.4,
-    paddingPx: 24,
-    colors: {
-      road: "#3a4150",
-      roadArterial: "#4a5366",
-      river: "#1d3a55",
-      cbdTint: "rgba(79,163,255,0.07)",
-      hubTint: "rgba(255,196,79,0.08)",
-      signalGreen: "#3dd68c",
-      signalRed: "#ff5d5d",
-      traceRoute: "#4fa3ff",
-      chartLine: "#4fa3ff",
-      chartGrid: "#262b33",
-      chartCursor: "#8b93a3",
+    chartLine: "#4fa3ff",
+    chartLine2: "#ffc44f",
+    chartLine3: "#ff7b6b",
+    chartGrid: "#262b33",
+    chartCursor: "#8b93a3",
+    /** 3D scene palette & building generation. */
+    three: {
+      skyDay: 0x87b5e8,
+      skyNight: 0x070b14,
+      ground: 0x1d2b20,
+      groundNorth: 0x232e33,
+      river: 0x1d4a6e,
+      roadLocal: 0x32363f,
+      roadArterial: 0x3d424e,
+      buildingsPerNode: [2, 4] as [number, number],
+      heights: {
+        cbd: [45, 130] as [number, number],
+        hub: [22, 55] as [number, number],
+        northRes: [10, 26] as [number, number],
+        southRes: [6, 16] as [number, number],
+      },
+      sunriseH: 5.5,
+      sunsetH: 20.5,
     },
   },
 };
 
 export type SimsConfig = typeof config;
 
-/** Deep-ish clone so UI restarts can override (seed, N) without mutating defaults. */
-export function cloneConfig(overrides?: { seed?: number; n?: number }): SimsConfig {
+export interface ConfigOverrides {
+  seed?: number;
+  n?: number;
+  flatten?: boolean;
+}
+
+/** Deep clone so UI restarts can override (seed, N, scenario) without mutating defaults. */
+export function cloneConfig(overrides?: ConfigOverrides): SimsConfig {
   const c = structuredClone(config);
   if (overrides?.seed !== undefined) c.seed = overrides.seed;
   if (overrides?.n !== undefined) c.population.N = overrides.n;
+  if (overrides?.flatten !== undefined) c.scenario.flattenSchedules = overrides.flatten;
   return c;
 }
