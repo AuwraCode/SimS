@@ -15,7 +15,7 @@ export class AgentsView {
   private readonly walkers: THREE.InstancedMesh;
   private readonly frames: EdgeFrame[];
   private readonly ramp = makeRamp3();
-  private readonly dummy = new THREE.Object3D();
+  readonly dummy = new THREE.Object3D();
   private readonly walkerPalette = [0xc9d4e0, 0xe0b8a0, 0x9fc7b8, 0xd6c08a, 0xa9b8d8, 0xc79fb6];
   private readonly colorScratch = new THREE.Color();
 

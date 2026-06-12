@@ -196,7 +196,7 @@ function summarize(sim: Simulation, args: Args): string {
   const lines = [
     `am peak active        ${am.peakActive}  at ${fmtT(am.peakActiveT)}   (min speed ${am.minSpeed.toFixed(1)} km/h at ${fmtT(am.minSpeedT)})`,
     `pm peak active        ${pm.peakActive}  at ${fmtT(pm.peakActiveT)}   (min speed ${pm.minSpeed.toFixed(1)} km/h at ${fmtT(pm.minSpeedT)})`,
-    `peak/mean ratio       ${(all.peakActive / Math.max(1, meanActive)).toFixed(2)}  (flatten experiment should push this toward ~1–2)`,
+    `peak/mean ratio       ${(all.peakActive / Math.max(1, meanActive)).toFixed(2)}  (baseline ≈10; --flatten collapses the peaks)`,
     `max queue / at work   ${maxQueue} / ${maxAtWork}`,
     `walkers peak          ${maxWalkers}`,
     `completed legs        ${m.trips.length}`,
