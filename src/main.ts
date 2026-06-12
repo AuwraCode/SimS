@@ -192,10 +192,11 @@ function updateHud(): void {
     } else {
       status = "leaving any moment";
     }
+    const expected = a.mode === "transit" ? a.expectedTransitS : a.expectedS;
     ui.traceInfo.innerHTML =
       `<b>agent #${a.id}</b> (${a.mode}${a.errand !== null ? ", errand planned" : ""}) — ` +
       `at work by <b>${fmtClock(a.workStartS)}</b>, ~${(a.workDurS / 3600).toFixed(1)} h day<br>` +
-      `plans to leave ${fmtClock(a.departS)} (expects ${(a.expectedS / 60).toFixed(1)} min ` +
+      `plans to leave ${fmtClock(a.departS)} (expects ${(expected / 60).toFixed(1)} min ` +
       `+ ${(a.bufferS / 60).toFixed(0)} min buffer)<br>status: ${status}`;
   }
 }
