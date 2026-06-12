@@ -196,6 +196,33 @@ export const config = {
     flattenRangeS: [hm(4, 0), hm(14, 0)] as [number, number],
   },
 
+  /**
+   * Day-to-day learning (Phase 3). Each midnight every agent reconciles what
+   * they EXPERIENCED with what they EXPECTED — and only that. Over days the
+   * morning peak spreads earlier as people leave sooner to beat the jam they
+   * personally sat in; the system relaxes toward a quasi-equilibrium. This is
+   * the documented real-world phenomenon, reproduced from individual memory,
+   * never from any global rule.
+   */
+  learning: {
+    /**
+     * Share of agents who actually revise their plan on a given night.
+     * If EVERYONE reacted to yesterday simultaneously the system oscillates
+     * (good day → all relax → bad day → all overcorrect); partial nightly
+     * revision is the classic, behaviorally honest damper.
+     */
+    reviseShare: 0.45,
+    /** EMA gain on experienced door-to-desk commute time. */
+    lambda: 0.35,
+    /** Arrived late → grow the personal buffer by this fraction of the lateness. */
+    lateBufferGain: 0.3,
+    /** Being early is tolerated up to this slack… */
+    earlySlackS: minutes(20),
+    /** …beyond it, the buffer decays by this fraction of the excess earliness. */
+    earlyBufferDecay: 0.08,
+    bufferClampS: [60, minutes(40)] as [number, number],
+  },
+
   metrics: {
     /** Sampling cadence for the time-series charts (sim seconds). */
     sampleEveryS: 60,

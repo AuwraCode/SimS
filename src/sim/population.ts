@@ -119,6 +119,7 @@ export function buildPopulation(cfg: SimsConfig, net: Network, rng: Rng): Agent[
       bufferS,
       departS: workStartS, // provisional; planning fills the real value
       freeFlowS: 0,
+      expectedS: 0,
       errand,
       v0mul,
       T,

@@ -69,10 +69,12 @@ export interface Agent {
   workStartS: number;
   workDurS: number;
   bufferS: number;
-  /** Planned first departure: workStart − expected travel − buffer. */
+  /** Planned first departure (time of day): workStart − expected travel − buffer. */
   departS: number;
   /** Expected (free-flow) travel time of the morning leg, set during planning. */
   freeFlowS: number;
+  /** LEARNED expected door-to-desk commute (s) — updated nightly from experience. */
+  expectedS: number;
   errand: ErrandPlan | null;
   /** IDM heterogeneity. */
   v0mul: number;

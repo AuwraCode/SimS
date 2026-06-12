@@ -41,10 +41,16 @@ export class Scheduler {
     this.workersAt = new Int32Array(net.nodes.length);
     this.residentsAt = new Int32Array(net.nodes.length);
     for (const a of agents) {
-      this.residentsAt[a.home]++; // everyone starts the day at home
-      if (a.mode !== "wfh") {
-        this.push(a.departS, a.id, "toWork", a.home, a.work);
-      }
+      this.residentsAt[a.home]++; // everyone starts day 0 at home
+    }
+  }
+
+  /** Queue every commuter's morning departure for day `dayIdx` (absolute times). */
+  scheduleDay(dayIdx: number): void {
+    const base = dayIdx * 86400;
+    for (const a of this.agents) {
+      if (a.mode === "wfh" || a.probe === true) continue;
+      this.push(base + a.departS, a.id, "toWork", a.home, a.work);
     }
   }
 
@@ -154,18 +160,21 @@ export class Scheduler {
     // errandReturn departs from the shop — no tracked occupancy there.
   }
 
-  /** Chain the rest of the day off real arrival times. */
+  /** Chain the rest of the day off real arrival times (all absolute seconds). */
   private handleArrival(arr: TripArrival): void {
     this.completed.push(arr);
     const agent = this.agents[arr.agentId];
     if (agent === undefined || agent.probe === true) return;
     const earliestNext = arr.arriveS + this.chainGapS;
+    // The day this leg belongs to — derived from its planned departure, so a
+    // straggler arriving just past midnight still chains within its own day.
+    const dayBase = Math.floor(arr.plannedDepartS / 86400) * 86400;
     switch (arr.kind) {
       case "toWork": {
         this.workersAt[agent.work]++;
         if (agent.errand !== null) {
           this.push(
-            Math.max(agent.errand.departS, earliestNext),
+            Math.max(dayBase + agent.errand.departS, earliestNext),
             agent.id,
             "toErrand",
             agent.work,
@@ -173,7 +182,7 @@ export class Scheduler {
           );
         } else {
           this.push(
-            Math.max(agent.workStartS + agent.workDurS, earliestNext),
+            Math.max(dayBase + agent.workStartS + agent.workDurS, earliestNext),
             agent.id,
             "toHome",
             agent.work,
@@ -192,7 +201,7 @@ export class Scheduler {
       case "errandReturn": {
         this.workersAt[agent.work]++;
         this.push(
-          Math.max(agent.workStartS + agent.workDurS, earliestNext),
+          Math.max(dayBase + agent.workStartS + agent.workDurS, earliestNext),
           agent.id,
           "toHome",
           agent.work,

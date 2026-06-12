@@ -20,6 +20,7 @@ interface Args {
   flatten: boolean;
   closeAtH: number | null;
   boost: number | null;
+  days: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -30,6 +31,7 @@ function parseArgs(argv: string[]): Args {
     flatten: false,
     closeAtH: null,
     boost: null,
+    days: 1,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -37,6 +39,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--n") args.n = Number(argv[++i]);
     else if (a === "--check") args.check = true;
     else if (a === "--flatten") args.flatten = true;
+    else if (a === "--days") args.days = Math.max(1, Number(argv[++i]));
     else if (a === "--close") {
       const next = Number(argv[i + 1]);
       args.closeAtH = Number.isFinite(next) ? Number(argv[++i]) : 7.75;
@@ -94,7 +97,8 @@ function runDay(args: Args): Simulation {
   let probesInjected = false;
   let closed = false;
   const stepsPerMinute = Math.round(60 / cfg.sim.dt);
-  const maxMinutes = Math.round(25.5 * 60);
+  // Run K full days plus an hour of day K so the last midnight rollover lands.
+  const maxMinutes = args.days * 1440 + 60;
   let stuckRising = 0;
   let gridlockWarned = false;
 
@@ -131,9 +135,55 @@ function runDay(args: Args): Simulation {
     } else {
       stuckRising = 0;
     }
-    if (sim.isDone()) break;
   }
   return sim;
+}
+
+/** Phase 3 proof table: the morning peak migrates earlier and pain shrinks. */
+function printDayTable(sim: Simulation, days: number): void {
+  const m = sim.metrics;
+  const popN = sim.cfg.population.N;
+  console.log(
+    "\n day | am peak (act @ time) | min km/h | mean depart | mean late | p90 delay | legs",
+  );
+  for (let d = 0; d < days; d++) {
+    const w = windowStats(sim, d * 24 + 5, d * 24 + 12, 30);
+    const legs = m.trips.filter(
+      (tr) =>
+        tr.kind === "toWork" &&
+        tr.agentId < popN &&
+        tr.plannedDepartS >= d * 86400 &&
+        tr.plannedDepartS < (d + 1) * 86400,
+    );
+    let departSum = 0;
+    let lateSum = 0;
+    let delaySum = 0;
+    const delays: number[] = [];
+    for (const tr of legs) {
+      departSum += tr.plannedDepartS - d * 86400;
+      const agent = sim.agents[tr.agentId];
+      const late = (tr.arriveS % 86400) - agent.workStartS;
+      lateSum += Math.max(0, late);
+      const delay = tr.arriveS - tr.plannedDepartS - tr.freeFlowS;
+      delaySum += delay;
+      delays.push(delay);
+    }
+    void delaySum;
+    delays.sort((a, b) => a - b);
+    const p90 = delays.length > 0 ? delays[Math.floor(delays.length * 0.9)] : 0;
+    const n = Math.max(1, legs.length);
+    console.log(
+      `  ${String(d + 1).padStart(2)} | ${String(w.peakActive).padStart(6)} @ ${fmtT(
+        w.peakActiveT % 86400,
+      )}    |   ${w.minSpeed.toFixed(1).padStart(5)} |    ${fmtT(departSum / n)}    |  ${(
+        lateSum /
+        n /
+        60
+      )
+        .toFixed(1)
+        .padStart(5)} min | ${(p90 / 60).toFixed(1).padStart(6)} min | ${legs.length}`,
+    );
+  }
 }
 
 function printTimeline(sim: Simulation): void {
@@ -217,16 +267,22 @@ const tags = [
   args.flatten ? "FLATTEN" : null,
   args.closeAtH !== null ? `CLOSE@${args.closeAtH}` : null,
   args.boost !== null ? `BOOST×${args.boost}` : null,
+  args.days > 1 ? `${args.days} DAYS` : null,
 ]
   .filter(Boolean)
   .join(" ");
 console.log(
-  `\n=== SimS headless day — seed ${args.seed}${args.n !== undefined ? `, N ${args.n}` : ""}${
+  `\n=== SimS headless — seed ${args.seed}${args.n !== undefined ? `, N ${args.n}` : ""}${
     tags.length > 0 ? ` [${tags}]` : ""
   } ===`,
 );
-printTimeline(sim1);
-console.log(summarize(sim1, args));
+if (args.days === 1) {
+  printTimeline(sim1);
+  console.log(summarize(sim1, args));
+} else {
+  printDayTable(sim1, args.days);
+  console.log(`state hash            ${sim1.hashState()}`);
+}
 console.log(`wall time             ${wall} s`);
 
 if (args.check) {

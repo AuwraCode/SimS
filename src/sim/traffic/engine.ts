@@ -85,8 +85,9 @@ export class TrafficEngine {
     private readonly agents: Agent[],
     private readonly router: Router,
   ) {
-    const drivers = agents.reduce((n, a) => n + (a.mode === "car" ? 1 : 0), 0);
-    this.cap = drivers + 32; // each agent runs at most one concurrent trip (+probe headroom)
+    // Sized for the whole population: day-to-day mode switching (Phase 3) can
+    // turn any walker/transit rider into a driver. One concurrent trip each.
+    this.cap = agents.length + 64;
     this.pos = new Float32Array(this.cap);
     this.vel = new Float32Array(this.cap);
     this.acc = new Float32Array(this.cap);

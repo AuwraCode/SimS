@@ -1,4 +1,5 @@
 import type { SimsConfig } from "../config";
+import { applyDayLearning } from "./learning";
 import { Metrics } from "./metrics";
 import { buildNetwork } from "./network";
 import { buildPopulation } from "./population";
@@ -21,9 +22,11 @@ export interface Simulation {
   walk: WalkSystem;
   scheduler: Scheduler;
   metrics: Metrics;
-  /** Current sim time, seconds of day. */
+  /** Current sim time, ABSOLUTE seconds (day 2 starts at 86400). */
   readonly t: number;
   readonly tick: number;
+  /** 0-based simulated day index. */
+  readonly day: number;
   step(nSteps: number): void;
   /** True once the day is over and every chained trip has finished. */
   isDone(): boolean;
@@ -49,6 +52,8 @@ export function createSimulation(cfg: SimsConfig): Simulation {
   const engine = new TrafficEngine(cfg, net, agents, router);
   const scheduler = new Scheduler(cfg, net, agents, engine, walk, router);
   const metrics = new Metrics(cfg, net);
+  scheduler.scheduleDay(0);
+  let learnedUpTo = 0; // index into metrics.trips already consumed by learning
 
   const arterialBridgeEdges = net.edges
     .filter((e) => e.isBridge && cfg.network.arterialCols.includes(e.bridgeCol))
@@ -68,15 +73,27 @@ export function createSimulation(cfg: SimsConfig): Simulation {
     get tick() {
       return scheduler.tick;
     },
+    get day() {
+      return Math.floor(scheduler.t / 86400);
+    },
     step(nSteps: number): void {
       for (let s = 0; s < nSteps; s++) {
         scheduler.step();
         metrics.update(scheduler.t, engine, walk, scheduler);
+        // Midnight rollover: everyone sleeps on what the day taught them,
+        // then tomorrow's departures enter the heap.
+        const t = scheduler.t;
+        if (t > 0 && t % 86400 === 0) {
+          const finishedDay = t / 86400 - 1;
+          learnedUpTo = applyDayLearning(cfg, agents, metrics.trips, learnedUpTo, finishedDay);
+          scheduler.scheduleDay(t / 86400);
+        }
       }
     },
     isDone(): boolean {
+      // Multi-day: the city never ends; "done" only means the road has
+      // drained AND nothing is scheduled — which rollover always prevents.
       return (
-        scheduler.t >= cfg.sim.dayEndS &&
         engine.activeCount === 0 &&
         engine.waitingCount === 0 &&
         walk.count === 0 &&
@@ -95,6 +112,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         bufferS: 0,
         departS: scheduler.t,
         freeFlowS: 0,
+        expectedS: 0,
         errand: null,
         v0mul: 1,
         T: (cfg.idm.TMin + cfg.idm.TMax) / 2,
@@ -180,6 +198,9 @@ function finalizePlans(cfg: SimsConfig, agents: Agent[], router: Router): void {
       agent.freeFlowS = r !== null ? router.routeFreeFlowS(r) : 0;
     }
     if (agent.mode === "wfh") continue;
-    agent.departS = Math.max(0, agent.workStartS - agent.freeFlowS - agent.bufferS);
+    // Day 0 belief: the free-flow time (optimism — nobody has sat in this
+    // city's traffic yet). Learning replaces it with experience nightly.
+    agent.expectedS = agent.freeFlowS;
+    agent.departS = Math.max(0, agent.workStartS - agent.expectedS - agent.bufferS);
   }
 }

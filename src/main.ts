@@ -49,21 +49,18 @@ const tripsChart = new TimeChart(
   palette.chartLine,
   palette.chartGrid,
   palette.chartCursor,
-  cfg.sim.dayEndS,
 );
 const speedChart = new TimeChart(
   document.getElementById("chartSpeed") as HTMLCanvasElement,
   palette.chartLine2,
   palette.chartGrid,
   palette.chartCursor,
-  cfg.sim.dayEndS,
 );
 const queueChart = new TimeChart(
   document.getElementById("chartQueue") as HTMLCanvasElement,
   palette.chartLine3,
   palette.chartGrid,
   palette.chartCursor,
-  cfg.sim.dayEndS,
 );
 
 let playing = true;
@@ -159,12 +156,15 @@ function updateHud(): void {
   ui.hudAtWork.textContent = String(atWork);
   ui.hudArrived.textContent = String(m.trips.length);
   ui.hudWaiting.textContent = String(sim.engine.waitingCount);
-  ui.clock.textContent = fmtClock(sim.t);
+  ui.clock.innerHTML = `<span class="day">Day ${sim.day + 1}</span>${fmtClock(sim.t)}`;
 
   if (traceId !== null) {
     const a = sim.agents[traceId];
     const slot = sim.engine.slotOfAgent[traceId] ?? -1;
-    const legs = sim.metrics.trips.filter((tr) => tr.agentId === traceId);
+    const dayBase = sim.day * 86400;
+    const legs = sim.metrics.trips.filter(
+      (tr) => tr.agentId === traceId && tr.plannedDepartS >= dayBase,
+    );
     const last = legs.length > 0 ? legs[legs.length - 1] : undefined;
     let status: string;
     if (slot >= 0) {
@@ -184,7 +184,7 @@ function updateHud(): void {
     ui.traceInfo.innerHTML =
       `<b>agent #${a.id}</b> (${a.mode}${a.errand !== null ? ", errand planned" : ""}) — ` +
       `at work by <b>${fmtClock(a.workStartS)}</b>, ~${(a.workDurS / 3600).toFixed(1)} h day<br>` +
-      `plans to leave ${fmtClock(a.departS)} (expects ${(a.freeFlowS / 60).toFixed(1)} min ` +
+      `plans to leave ${fmtClock(a.departS)} (expects ${(a.expectedS / 60).toFixed(1)} min ` +
       `+ ${(a.bufferS / 60).toFixed(0)} min buffer)<br>status: ${status}`;
   }
 }
@@ -215,7 +215,8 @@ function frame(now: number): void {
     updateScenarioStatus();
   }
 
-  if (playing && !sim.isDone()) {
+  if (playing) {
+    // Multi-day: the city never "finishes" — midnight rollovers keep it alive.
     acc += realDt * speedMult;
     let steps = Math.floor(acc / cfg.sim.dt);
     if (steps > cfg.sim.maxStepsPerFrame) {
