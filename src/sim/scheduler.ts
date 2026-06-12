@@ -1,6 +1,7 @@
 import type { SimsConfig } from "../config";
 import type { Router } from "./routing";
 import type { TrafficEngine } from "./traffic/engine";
+import type { TransitSystem } from "./transit";
 import type { Agent, Network, TripArrival, TripEvent, TripKind } from "./types";
 import type { WalkSystem } from "./walkers";
 
@@ -34,6 +35,7 @@ export class Scheduler {
     private readonly agents: Agent[],
     private readonly engine: TrafficEngine,
     private readonly walk: WalkSystem,
+    private readonly transit: TransitSystem,
     private readonly router: Router,
   ) {
     this.dt = cfg.sim.dt;
@@ -121,6 +123,23 @@ export class Scheduler {
           freeFlowS: this.router.routeFreeFlowS(route),
           plannedS: ev.timeS,
         });
+      } else if (agent.mode === "transit") {
+        this.leaveBuilding(ev, agent);
+        agent.route = null;
+        this.transit.start(
+          {
+            agentId: ev.agentId,
+            kind: ev.kind,
+            from: ev.from,
+            to: ev.to,
+            route: new Int32Array(0),
+            freeFlowS: agent.transitBaseS,
+            plannedS: ev.timeS,
+          },
+          agent.walkSpeed,
+          t,
+          (a, b) => this.router.walkRoute(a, b),
+        );
       } else {
         const route = this.router.walkRoute(ev.from, ev.to);
         if (route === null) continue; // cannot happen: walk ignores closures
@@ -144,12 +163,15 @@ export class Scheduler {
 
     this.engine.step(t, this.tick);
     this.walk.step(t, this.dt);
+    this.transit.step(t, this.dt);
 
-    // Arrivals (deterministic order: engine's edge order, then walkers).
+    // Arrivals (deterministic order: engine's edge order, walkers, riders).
     for (const arr of this.engine.tripArrivals) this.handleArrival(arr);
     this.engine.tripArrivals.length = 0;
     for (const arr of this.walk.arrivals) this.handleArrival(arr);
     this.walk.arrivals.length = 0;
+    for (const arr of this.transit.arrivals) this.handleArrival(arr);
+    this.transit.arrivals.length = 0;
 
     this.tick++;
   }
@@ -172,7 +194,8 @@ export class Scheduler {
     switch (arr.kind) {
       case "toWork": {
         this.workersAt[agent.work]++;
-        if (agent.errand !== null) {
+        // Errands need the car — a tram day skips the planned shop run.
+        if (agent.errand !== null && agent.mode === "car") {
           this.push(
             Math.max(dayBase + agent.errand.departS, earliestNext),
             agent.id,

@@ -28,6 +28,7 @@ export function applyDayLearning(
   day: number,
 ): number {
   const L = cfg.learning;
+  const relax = cfg.transit.unusedModeRelax;
   for (let i = fromIdx; i < trips.length; i++) {
     const tr = trips[i];
     if (tr.kind !== "toWork") continue;
@@ -39,7 +40,17 @@ export function applyDayLearning(
     if (hash2(agent.id, 7919 + day) >= L.reviseShare) continue;
 
     const experiencedS = tr.arriveS - tr.plannedDepartS;
-    agent.expectedS += L.lambda * (experiencedS - agent.expectedS);
+    // Experience teaches the mode that was actually used; belief about the
+    // OTHER mode relaxes toward its optimistic baseline — so an ex-driver on
+    // the tram slowly forgets how bad the bridge was, tries it again one day,
+    // and either stays or gets re-burned. Mode split churns toward balance.
+    if (tr.mode === "transit") {
+      agent.expectedTransitS += L.lambda * (experiencedS - agent.expectedTransitS);
+      agent.expectedS += relax * (agent.freeFlowS - agent.expectedS);
+    } else {
+      agent.expectedS += L.lambda * (experiencedS - agent.expectedS);
+      agent.expectedTransitS += relax * (agent.transitBaseS - agent.expectedTransitS);
+    }
 
     const arriveTod = tr.arriveS % 86400;
     const lateS = arriveTod - agent.workStartS;
@@ -49,12 +60,20 @@ export function applyDayLearning(
       agent.bufferS -= L.earlyBufferDecay * (-lateS - L.earlySlackS);
     }
     agent.bufferS = clamp(agent.bufferS, L.bufferClampS[0], L.bufferClampS[1]);
+
+    // Tomorrow's mode: whichever the agent now BELIEVES is better, weighted
+    // by personal comfort. Walk/wfh lifestyles don't flip here.
+    if (agent.canTransit && (agent.mode === "car" || agent.mode === "transit")) {
+      agent.mode =
+        agent.expectedTransitS * agent.transitAffinity < agent.expectedS ? "transit" : "car";
+    }
   }
 
-  // Tomorrow's plan: same target, revised beliefs.
+  // Tomorrow's plan: same target, revised beliefs (mode-appropriate).
   for (const agent of agents) {
     if (agent.probe === true || agent.mode === "wfh") continue;
-    agent.departS = Math.max(0, agent.workStartS - agent.expectedS - agent.bufferS);
+    const expected = agent.mode === "transit" ? agent.expectedTransitS : agent.expectedS;
+    agent.departS = Math.max(0, agent.workStartS - expected - agent.bufferS);
   }
   return trips.length;
 }

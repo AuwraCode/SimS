@@ -144,7 +144,7 @@ function printDayTable(sim: Simulation, days: number): void {
   const m = sim.metrics;
   const popN = sim.cfg.population.N;
   console.log(
-    "\n day | am peak (act @ time) | min km/h | mean depart | mean late | p90 delay | legs",
+    "\n day | am peak (act @ time) | min km/h | mean depart | mean late | p90 delay | tram share",
   );
   for (let d = 0; d < days; d++) {
     const w = windowStats(sim, d * 24 + 5, d * 24 + 12, 30);
@@ -157,18 +157,16 @@ function printDayTable(sim: Simulation, days: number): void {
     );
     let departSum = 0;
     let lateSum = 0;
-    let delaySum = 0;
+    let tram = 0;
     const delays: number[] = [];
     for (const tr of legs) {
       departSum += tr.plannedDepartS - d * 86400;
       const agent = sim.agents[tr.agentId];
       const late = (tr.arriveS % 86400) - agent.workStartS;
       lateSum += Math.max(0, late);
-      const delay = tr.arriveS - tr.plannedDepartS - tr.freeFlowS;
-      delaySum += delay;
-      delays.push(delay);
+      delays.push(tr.arriveS - tr.plannedDepartS - tr.freeFlowS);
+      if (tr.mode === "transit") tram++;
     }
-    void delaySum;
     delays.sort((a, b) => a - b);
     const p90 = delays.length > 0 ? delays[Math.floor(delays.length * 0.9)] : 0;
     const n = Math.max(1, legs.length);
@@ -181,7 +179,9 @@ function printDayTable(sim: Simulation, days: number): void {
         60
       )
         .toFixed(1)
-        .padStart(5)} min | ${(p90 / 60).toFixed(1).padStart(6)} min | ${legs.length}`,
+        .padStart(5)} min | ${(p90 / 60).toFixed(1).padStart(6)} min |   ${((100 * tram) / n)
+        .toFixed(1)
+        .padStart(5)} %`,
     );
   }
 }

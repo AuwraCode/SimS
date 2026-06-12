@@ -232,6 +232,47 @@ export const config = {
     stuckThresholdS: 300,
   },
 
+  /**
+   * Public transit (Phase 3): one tram line on its own right-of-way, an
+   * L from the southern residential spine over the river into the CBD.
+   * The timetable is a periodic fixture (like signals); WHO rides is learned.
+   */
+  transit: {
+    headwayS: 300,
+    dwellS: 25,
+    speed: kmh(45),
+    path: [
+      { col: 3, row: 8 },
+      { col: 3, row: 7 },
+      { col: 3, row: 6 },
+      { col: 3, row: 5 },
+      { col: 3, row: 4 },
+      { col: 3, row: 3 },
+      { col: 3, row: 2 },
+      { col: 3, row: 1 },
+      { col: 4, row: 1 },
+      { col: 5, row: 1 },
+      { col: 6, row: 1 },
+      { col: 7, row: 1 },
+    ],
+    stops: [
+      { col: 3, row: 8 },
+      { col: 3, row: 6 },
+      { col: 3, row: 4 },
+      { col: 3, row: 3 },
+      { col: 3, row: 2 },
+      { col: 3, row: 1 },
+      { col: 5, row: 1 },
+      { col: 7, row: 1 },
+    ],
+    /** Transit is an option when both walk legs are within this distance. */
+    maxAccessM: 600,
+    /** Per-agent comfort multiplier on transit cost ~ N(mu, sigma) — most prefer the car. */
+    affinity: { mu: 1.25, sigma: 0.2, clamp: [0.85, 1.8] as [number, number] },
+    /** Nightly relaxation of the UNUSED mode's expectation toward its baseline. */
+    unusedModeRelax: 0.12,
+  },
+
   /** Ambient sky traffic — pure decoration on periodic loops (no demand coupling). */
   ambient: {
     planes: 3,

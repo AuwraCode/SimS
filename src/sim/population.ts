@@ -76,6 +76,13 @@ export function buildPopulation(cfg: SimsConfig, net: Network, rng: Rng): Agent[
     const errandAfterS = uniform(rng, p.errand.afterMinS, p.errand.afterMaxS);
     const errandDwellS = uniform(rng, p.errand.dwellMinS, p.errand.dwellMaxS);
     let errandNode = pickCumulative(rng, jobCum);
+    const transitAffinity = normalClamped(
+      rng,
+      cfg.transit.affinity.mu,
+      cfg.transit.affinity.sigma,
+      cfg.transit.affinity.clamp[0],
+      cfg.transit.affinity.clamp[1],
+    );
 
     // Work start: the plan mixture — or, under the flatten experiment, a
     // uniform draw (this single substitution is what kills rush hour).
@@ -120,6 +127,10 @@ export function buildPopulation(cfg: SimsConfig, net: Network, rng: Rng): Agent[
       departS: workStartS, // provisional; planning fills the real value
       freeFlowS: 0,
       expectedS: 0,
+      canTransit: false, // planning fills these once the line geometry is known
+      expectedTransitS: 0,
+      transitBaseS: 0,
+      transitAffinity,
       errand,
       v0mul,
       T,

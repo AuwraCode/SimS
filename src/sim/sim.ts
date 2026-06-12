@@ -7,6 +7,7 @@ import { makeStream } from "./rng";
 import { Router } from "./routing";
 import { Scheduler } from "./scheduler";
 import { TrafficEngine } from "./traffic/engine";
+import { buildLine, type TransitLine, TransitSystem, transitEstimateS } from "./transit";
 import type { Agent, Network } from "./types";
 import { WalkSystem } from "./walkers";
 
@@ -20,6 +21,8 @@ export interface Simulation {
   agents: Agent[];
   engine: TrafficEngine;
   walk: WalkSystem;
+  transit: TransitSystem;
+  line: TransitLine;
   scheduler: Scheduler;
   metrics: Metrics;
   /** Current sim time, ABSOLUTE seconds (day 2 starts at 86400). */
@@ -46,11 +49,13 @@ export function createSimulation(cfg: SimsConfig): Simulation {
   const net = buildNetwork(cfg, worldRng);
   const agents = buildPopulation(cfg, net, popRng);
   const router = new Router(cfg, net);
-  finalizePlans(cfg, agents, router);
+  const line = buildLine(cfg, net);
+  finalizePlans(cfg, agents, router, line, net);
 
   const walk = new WalkSystem(net);
+  const transit = new TransitSystem(net, line, cfg.network.spacingM);
   const engine = new TrafficEngine(cfg, net, agents, router);
-  const scheduler = new Scheduler(cfg, net, agents, engine, walk, router);
+  const scheduler = new Scheduler(cfg, net, agents, engine, walk, transit, router);
   const metrics = new Metrics(cfg, net);
   scheduler.scheduleDay(0);
   let learnedUpTo = 0; // index into metrics.trips already consumed by learning
@@ -65,6 +70,8 @@ export function createSimulation(cfg: SimsConfig): Simulation {
     agents,
     engine,
     walk,
+    transit,
+    line,
     scheduler,
     metrics,
     get t() {
@@ -79,7 +86,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
     step(nSteps: number): void {
       for (let s = 0; s < nSteps; s++) {
         scheduler.step();
-        metrics.update(scheduler.t, engine, walk, scheduler);
+        metrics.update(scheduler.t, engine, walk, transit, scheduler);
         // Midnight rollover: everyone sleeps on what the day taught them,
         // then tomorrow's departures enter the heap.
         const t = scheduler.t;
@@ -97,6 +104,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         engine.activeCount === 0 &&
         engine.waitingCount === 0 &&
         walk.count === 0 &&
+        transit.count === 0 &&
         scheduler.pendingTrips === 0
       );
     },
@@ -113,6 +121,10 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         departS: scheduler.t,
         freeFlowS: 0,
         expectedS: 0,
+        canTransit: false,
+        expectedTransitS: 0,
+        transitBaseS: 0,
+        transitAffinity: 1,
         errand: null,
         v0mul: 1,
         T: (cfg.idm.TMin + cfg.idm.TMax) / 2,
@@ -164,6 +176,11 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         mix(edgeId);
         mixF(posM);
       });
+      transit.forEachState((agentId, phase, distM) => {
+        mix(agentId);
+        mix(phase);
+        mixF(distM);
+      });
       for (let i = 0; i < scheduler.workersAt.length; i++) {
         mix(scheduler.workersAt[i]);
         mix(scheduler.residentsAt[i]);
@@ -179,10 +196,17 @@ export function createSimulation(cfg: SimsConfig): Simulation {
 
 /**
  * Turn sampled plans into concrete departures. Walk-preferrers whose commute
- * is too long become drivers; everyone gets departS = workStart − expected
- * travel (free-flow — what people assume when planning) − personal buffer.
+ * is too long become drivers; drivers near the tram line get it as a learned
+ * alternative; everyone gets departS = workStart − expected travel (free-flow
+ * — what people assume when planning) − personal buffer.
  */
-function finalizePlans(cfg: SimsConfig, agents: Agent[], router: Router): void {
+function finalizePlans(
+  cfg: SimsConfig,
+  agents: Agent[],
+  router: Router,
+  line: TransitLine,
+  net: Network,
+): void {
   for (const agent of agents) {
     if (agent.mode === "walk") {
       const wr = router.walkRoute(agent.home, agent.work);
@@ -196,10 +220,28 @@ function finalizePlans(cfg: SimsConfig, agents: Agent[], router: Router): void {
     if (agent.mode === "car") {
       const r = router.routeFreeFlow(agent.home, agent.work, agent);
       agent.freeFlowS = r !== null ? router.routeFreeFlowS(r) : 0;
+      // Is the tram an option for this commute?
+      const est = transitEstimateS(
+        line,
+        net,
+        cfg.network.spacingM,
+        agent.home,
+        agent.work,
+        agent.walkSpeed,
+      );
+      if (
+        est !== null &&
+        est.access <= cfg.transit.maxAccessM &&
+        est.egress <= cfg.transit.maxAccessM
+      ) {
+        agent.canTransit = true;
+        agent.transitBaseS = est.totalS;
+        agent.expectedTransitS = est.totalS;
+      }
     }
     if (agent.mode === "wfh") continue;
-    // Day 0 belief: the free-flow time (optimism — nobody has sat in this
-    // city's traffic yet). Learning replaces it with experience nightly.
+    // Day 0 belief: free-flow driving (optimism — nobody has sat in this
+    // city's traffic yet, so nobody starts on the tram). Learning fixes that.
     agent.expectedS = agent.freeFlowS;
     agent.departS = Math.max(0, agent.workStartS - agent.expectedS - agent.bufferS);
   }

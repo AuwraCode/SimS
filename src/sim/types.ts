@@ -49,7 +49,7 @@ export interface Network {
   rows: number;
 }
 
-export type AgentMode = "car" | "walk" | "wfh";
+export type AgentMode = "car" | "walk" | "wfh" | "transit";
 
 export type TripKind = "toWork" | "toErrand" | "errandReturn" | "toHome";
 
@@ -73,8 +73,16 @@ export interface Agent {
   departS: number;
   /** Expected (free-flow) travel time of the morning leg, set during planning. */
   freeFlowS: number;
-  /** LEARNED expected door-to-desk commute (s) — updated nightly from experience. */
+  /** LEARNED expected door-to-desk commute by car (s) — updated nightly from experience. */
   expectedS: number;
+  /** Whether the tram is a viable option (both walk legs within reach). */
+  canTransit: boolean;
+  /** LEARNED expected door-to-desk commute by tram (s). */
+  expectedTransitS: number;
+  /** Plan-time transit baseline (timetable + walks) the unused mode relaxes toward. */
+  transitBaseS: number;
+  /** Comfort multiplier on transit cost (>1 = prefers the car). */
+  transitAffinity: number;
   errand: ErrandPlan | null;
   /** IDM heterogeneity. */
   v0mul: number;

@@ -1,6 +1,7 @@
 import type { SimsConfig } from "../config";
 import type { Scheduler } from "./scheduler";
 import type { TrafficEngine } from "./traffic/engine";
+import type { TransitSystem } from "./transit";
 import type { Network, TripArrival } from "./types";
 import type { WalkSystem } from "./walkers";
 
@@ -24,6 +25,8 @@ export class Metrics {
   readonly waitingDepart: number[] = [];
   /** Pedestrians en route. */
   readonly walkers: number[] = [];
+  /** Transit riders en route (walking legs, platforms, on board). */
+  readonly riders: number[] = [];
   /** People currently at work (the "businesses are open" signal). */
   readonly atWork: number[] = [];
   /** Per-bridge crossings per minute (arterial / local bridge). */
@@ -54,7 +57,13 @@ export class Metrics {
   }
 
   /** Call after every step; cheap unless a sample boundary was crossed. */
-  update(t: number, engine: TrafficEngine, walk: WalkSystem, scheduler: Scheduler): boolean {
+  update(
+    t: number,
+    engine: TrafficEngine,
+    walk: WalkSystem,
+    transit: TransitSystem,
+    scheduler: Scheduler,
+  ): boolean {
     if (scheduler.completed.length > 0) {
       for (const trip of scheduler.completed) this.trips.push(trip);
       scheduler.completed.length = 0;
@@ -79,6 +88,7 @@ export class Metrics {
     this.stuck.push(stuck);
     this.waitingDepart.push(engine.waitingCount);
     this.walkers.push(walk.count);
+    this.riders.push(transit.count);
     let atWork = 0;
     for (let i = 0; i < scheduler.workersAt.length; i++) atWork += scheduler.workersAt[i];
     this.atWork.push(atWork);
