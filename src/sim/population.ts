@@ -1,5 +1,5 @@
 import type { SimsConfig } from "../config";
-import { type Rng, normalClamped, pickCumulative } from "./rng";
+import { normalClamped, pickCumulative, type Rng } from "./rng";
 import type { Agent, Network } from "./types";
 
 /**
@@ -46,14 +46,14 @@ export function buildPopulation(cfg: SimsConfig, net: Network, rng: Rng): Agent[
     const drives = rng() < p.driverShare;
 
     const comp = p.startMix[pickCumulative(rng, mixCum)];
-    const workStartS = normalClamped(
+    const workStartS = normalClamped(rng, comp.mu, comp.sigma, p.startClampS[0], p.startClampS[1]);
+    const workDurS = normalClamped(
       rng,
-      comp.mu,
-      comp.sigma,
-      p.startClampS[0],
-      p.startClampS[1],
+      p.workDur.mu,
+      p.workDur.sigma,
+      p.workDur.min,
+      p.workDur.max,
     );
-    const workDurS = normalClamped(rng, p.workDur.mu, p.workDur.sigma, p.workDur.min, p.workDur.max);
     const bufferS = normalClamped(rng, p.buffer.mu, p.buffer.sigma, p.buffer.min, p.buffer.max);
     const v0mul = normalClamped(rng, 1, cfg.idm.v0Sigma, cfg.idm.v0MulMin, cfg.idm.v0MulMax);
     const T = cfg.idm.TMin + (cfg.idm.TMax - cfg.idm.TMin) * rng();

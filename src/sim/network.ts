@@ -21,8 +21,10 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
 
   const nodeId = (col: number, row: number): number => row * n.cols + col;
   const isBridgeCol = (col: number): boolean => n.bridgeCols.includes(col);
-  const colClass = (col: number): RoadClass => (n.arterialCols.includes(col) ? "arterial" : "local");
-  const rowClass = (row: number): RoadClass => (n.arterialRows.includes(row) ? "arterial" : "local");
+  const colClass = (col: number): RoadClass =>
+    n.arterialCols.includes(col) ? "arterial" : "local";
+  const rowClass = (row: number): RoadClass =>
+    n.arterialRows.includes(row) ? "arterial" : "local";
   const inCbd = (col: number, row: number): boolean =>
     col >= n.cbd.col0 && col <= n.cbd.col1 && row >= n.cbd.row0 && row <= n.cbd.row1;
 
@@ -106,8 +108,7 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
   // --- Signals: arterial-involved junctions and bridgeheads; the rest run FCFS priority ---
   const greenS = cfg.signals.cycleS / 2 - cfg.signals.lostTimeS;
   for (const node of nodes) {
-    const touchesArterial =
-      n.arterialCols.includes(node.col) || n.arterialRows.includes(node.row);
+    const touchesArterial = n.arterialCols.includes(node.col) || n.arterialRows.includes(node.row);
     const bridgehead =
       isBridgeCol(node.col) && (node.row === n.riverNorthRow || node.row === n.riverSouthRow);
     // Signal offsets are sampled for EVERY node so the rng layout does not

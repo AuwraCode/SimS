@@ -1,5 +1,5 @@
 import type { SimsConfig } from "../config";
-import { type Rng, hash2, normalClamped } from "./rng";
+import { hash2, normalClamped, type Rng } from "./rng";
 import type { Agent, Network } from "./types";
 
 /**
