@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SimS — Emergent City Traffic</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <main id="cityPane">
+        <canvas id="city"></canvas>
+      </main>
+      <aside id="panel">
+        <div id="clock">--:--</div>
+        <section class="controls">
+          <div class="row">
+            <button id="playPause" type="button">Pause</button>
+            <label class="speedLabel">
+              <input id="speed" type="range" min="0" max="100" value="50" />
+              <span id="speedValue">60×</span>
+            </label>
+          </div>
+          <div class="row">
+            <label>seed <input id="seed" type="text" inputmode="numeric" /></label>
+            <label>agents <input id="agents" type="text" inputmode="numeric" /></label>
+            <button id="restart" type="button">Restart</button>
+          </div>
+          <div class="row">
+            <button id="trace" type="button">Trace random agent</button>
+          </div>
+        </section>
+        <section id="hud">
+          <div><span class="hudLabel">active trips</span><span id="hudActive">0</span></div>
+          <div><span class="hudLabel">mean speed</span><span id="hudSpeed">—</span></div>
+          <div><span class="hudLabel">arrived</span><span id="hudArrived">0</span></div>
+          <div><span class="hudLabel">waiting</span><span id="hudWaiting">0</span></div>
+          <div><span class="hudLabel">fps</span><span id="hudFps">0</span></div>
+        </section>
+        <section class="chartBox">
+          <h3>active trips vs time</h3>
+          <canvas id="chartTrips"></canvas>
+        </section>
+        <section class="chartBox">
+          <h3>mean speed (km/h) vs time</h3>
+          <canvas id="chartSpeed"></canvas>
+        </section>
+        <div id="traceInfo" hidden></div>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
