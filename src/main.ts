@@ -1,6 +1,6 @@
 import { cloneConfig, config } from "./config";
 import { TimeChart } from "./render/charts";
-import { CityRenderer } from "./render/city";
+import { Scene3D } from "./render3d/scene";
 import { createSimulation, type Simulation } from "./sim/sim";
 import { fmtClock, setupUi } from "./ui";
 
@@ -16,33 +16,53 @@ const params = new URLSearchParams(window.location.search);
 const urlSeed = params.get("seed");
 const urlN = params.get("n");
 const urlWarp = params.get("warp"); // ?warp=7.5 → fast-forward to 07:30 on load
+const urlClose = params.get("close"); // ?close=7.75 → close the arterial bridge at 07:45
 
-let cfg = cloneConfig({
-  seed: urlSeed !== null ? Number(urlSeed) : undefined,
-  n: urlN !== null ? Number(urlN) : undefined,
-});
+interface Scenario {
+  seed: number;
+  n: number;
+  flatten: boolean;
+}
+const baseScenario: Scenario = {
+  seed: urlSeed !== null ? Number(urlSeed) : config.seed,
+  n: urlN !== null ? Number(urlN) : config.population.N,
+  flatten: false,
+};
+let scenario: Scenario = { ...baseScenario };
+
+let cfg = cloneConfig(scenario);
 let sim: Simulation = createSimulation(cfg);
-if (urlWarp !== null) {
+warpIfRequested(sim);
+
+function warpIfRequested(s: Simulation): void {
+  if (urlWarp === null || s.tick > 0) return;
   const warpS = Math.max(0, Math.min(24, Number(urlWarp))) * 3600;
-  sim.step(Math.round(warpS / cfg.sim.dt));
+  s.step(Math.round(warpS / cfg.sim.dt));
 }
 
 const cityCanvas = document.getElementById("city") as HTMLCanvasElement;
-let renderer = new CityRenderer(cityCanvas, sim.net, cfg);
+const scene = new Scene3D(cityCanvas, sim);
 
-const colors = config.render;
+const palette = config.render;
 const tripsChart = new TimeChart(
   document.getElementById("chartTrips") as HTMLCanvasElement,
-  colors.chartLine,
-  colors.chartGrid,
-  colors.chartCursor,
+  palette.chartLine,
+  palette.chartGrid,
+  palette.chartCursor,
   cfg.sim.dayEndS,
 );
 const speedChart = new TimeChart(
   document.getElementById("chartSpeed") as HTMLCanvasElement,
-  "#ffc44f",
-  colors.chartGrid,
-  colors.chartCursor,
+  palette.chartLine2,
+  palette.chartGrid,
+  palette.chartCursor,
+  cfg.sim.dayEndS,
+);
+const queueChart = new TimeChart(
+  document.getElementById("chartQueue") as HTMLCanvasElement,
+  palette.chartLine3,
+  palette.chartGrid,
+  palette.chartCursor,
   cfg.sim.dayEndS,
 );
 
@@ -50,6 +70,29 @@ let playing = true;
 let speedMult = cfg.sim.defaultSpeedMultiplier;
 let traceId: number | null = null;
 let acc = 0;
+
+function restart(next: Scenario): void {
+  scenario = next;
+  cfg = cloneConfig(scenario);
+  sim = createSimulation(cfg);
+  scene.setSimulation(sim);
+  traceId = null;
+  acc = 0;
+  ui.traceInfo.hidden = true;
+  ui.setSeed(scenario.seed);
+  ui.setAgents(scenario.n);
+  ui.setFlattenLabel(scenario.flatten);
+  ui.setClosedLabel(false);
+  updateScenarioStatus();
+}
+
+function updateScenarioStatus(): void {
+  const bits: string[] = [];
+  if (scenario.flatten) bits.push("FLATTENED schedules (uniform)");
+  if (sim.arterialBridgeClosed()) bits.push("arterial bridge CLOSED");
+  if (scenario.n !== baseScenario.n) bits.push(`population ${scenario.n}`);
+  ui.scenarioStatus.textContent = bits.length > 0 ? bits.join(" · ") : "baseline";
+}
 
 const ui = setupUi(
   {
@@ -61,65 +104,102 @@ const ui = setupUi(
       speedMult = m;
     },
     onRestart(seed: number, n: number): void {
-      cfg = cloneConfig({ seed, n: Math.max(1, Math.min(50000, n)) });
-      sim = createSimulation(cfg);
-      renderer = new CityRenderer(cityCanvas, sim.net, cfg);
-      traceId = null;
-      acc = 0;
-      ui.traceInfo.hidden = true;
+      restart({ ...scenario, seed, n: Math.max(1, Math.min(50000, n)) });
     },
     onTrace(): void {
-      const drivers = sim.agents.filter((a) => a.mode === "car" && a.id < cfg.population.N);
-      if (drivers.length === 0) return;
-      traceId = drivers[Math.floor(Math.random() * drivers.length)].id;
+      const movers = sim.agents.filter(
+        (a) => a.mode !== "wfh" && a.probe !== true && a.id < cfg.population.N,
+      );
+      if (movers.length === 0) return;
+      traceId = movers[Math.floor(Math.random() * movers.length)].id;
       ui.traceInfo.hidden = false;
+    },
+    onFlatten(): boolean {
+      restart({ ...scenario, flatten: !scenario.flatten });
+      return scenario.flatten;
+    },
+    onCloseBridge(): boolean {
+      sim.setArterialBridgeClosed(!sim.arterialBridgeClosed());
+      updateScenarioStatus();
+      return sim.arterialBridgeClosed();
+    },
+    onBoost(): void {
+      restart({ ...scenario, n: Math.min(50000, Math.round(scenario.n * 1.5)) });
+    },
+    onReset(): void {
+      restart({ ...baseScenario });
     },
   },
   cfg.sim.maxSpeedMultiplier,
   speedMult,
 );
-ui.setSeed(cfg.seed);
-ui.setAgents(cfg.population.N);
+ui.setSeed(scenario.seed);
+ui.setAgents(scenario.n);
+updateScenarioStatus();
 
 window.addEventListener("resize", () => {
-  renderer.resize();
+  scene.resize();
   tripsChart.resize();
   speedChart.resize();
+  queueChart.resize();
 });
 
-// --- HUD helpers ---
+// --- HUD ---
 let fpsFrames = 0;
 let fpsLastT = performance.now();
 
 function updateHud(): void {
   const m = sim.metrics;
   const lastSpeed = m.meanSpeedKmh.length > 0 ? m.meanSpeedKmh[m.meanSpeedKmh.length - 1] : NaN;
+  let atWork = 0;
+  for (let i = 0; i < sim.scheduler.workersAt.length; i++) atWork += sim.scheduler.workersAt[i];
   ui.hudActive.textContent = String(sim.engine.activeCount);
   ui.hudSpeed.textContent = Number.isNaN(lastSpeed) ? "—" : `${lastSpeed.toFixed(1)} km/h`;
-  ui.hudArrived.textContent = String(sim.engine.arrivedCount);
+  ui.hudWalkers.textContent = String(sim.walk.count);
+  ui.hudAtWork.textContent = String(atWork);
+  ui.hudArrived.textContent = String(m.trips.length);
   ui.hudWaiting.textContent = String(sim.engine.waitingCount);
   ui.clock.textContent = fmtClock(sim.t);
 
   if (traceId !== null) {
     const a = sim.agents[traceId];
     const slot = sim.engine.slotOfAgent[traceId] ?? -1;
-    const trip = sim.metrics.trips.find((tr) => tr.agentId === traceId);
+    const legs = sim.metrics.trips.filter((tr) => tr.agentId === traceId);
+    const last = legs.length > 0 ? legs[legs.length - 1] : undefined;
     let status: string;
-    if (trip !== undefined) {
-      const delayMin = (trip.arriveS - trip.plannedDepartS - trip.freeFlowS) / 60;
-      status = `arrived ${fmtClock(trip.arriveS)} (delay ${delayMin.toFixed(1)} min)`;
-    } else if (slot >= 0) {
-      status = `en route — ${((sim.engine.vel[slot] ?? 0) * 3.6).toFixed(0)} km/h`;
+    if (slot >= 0) {
+      status = `driving — ${((sim.engine.vel[slot] ?? 0) * 3.6).toFixed(0)} km/h (${legKind(legs.length)})`;
+    } else if (isWalking(traceId)) {
+      status = `walking (${legKind(legs.length)})`;
+    } else if (last !== undefined && last.kind === "toHome") {
+      status = `home since ${fmtClock(last.arriveS)}`;
+    } else if (last !== undefined) {
+      const delayMin = (last.arriveS - last.plannedDepartS - last.freeFlowS) / 60;
+      status = `${last.kind === "toWork" ? "at work" : "out"} since ${fmtClock(last.arriveS)} (leg delay ${delayMin.toFixed(1)} min)`;
     } else if (sim.t < a.departS) {
-      status = "at home";
+      status = "at home, not departed yet";
     } else {
-      status = "waiting to pull out / en route soon";
+      status = "leaving any moment";
     }
     ui.traceInfo.innerHTML =
-      `<b>agent #${a.id}</b> — wants to be at work <b>${fmtClock(a.workStartS)}</b><br>` +
-      `plans to leave ${fmtClock(a.departS)} (free-flow ${(a.freeFlowS / 60).toFixed(1)} min ` +
+      `<b>agent #${a.id}</b> (${a.mode}${a.errand !== null ? ", errand planned" : ""}) — ` +
+      `at work by <b>${fmtClock(a.workStartS)}</b>, ~${(a.workDurS / 3600).toFixed(1)} h day<br>` +
+      `plans to leave ${fmtClock(a.departS)} (expects ${(a.freeFlowS / 60).toFixed(1)} min ` +
       `+ ${(a.bufferS / 60).toFixed(0)} min buffer)<br>status: ${status}`;
   }
+}
+
+function legKind(completedLegs: number): string {
+  const seq = ["to work", "errand", "back to work", "home"];
+  return seq[Math.min(completedLegs, seq.length - 1)];
+}
+
+function isWalking(agentId: number): boolean {
+  let walking = false;
+  sim.walk.forEach((id) => {
+    if (id === agentId) walking = true;
+  });
+  return walking;
 }
 
 // --- main loop ---
@@ -128,6 +208,12 @@ let lastT = performance.now();
 function frame(now: number): void {
   const realDt = Math.min(0.25, (now - lastT) / 1000);
   lastT = now;
+
+  if (urlClose !== null && !sim.arterialBridgeClosed() && sim.t >= Number(urlClose) * 3600) {
+    sim.setArterialBridgeClosed(true);
+    ui.setClosedLabel(true);
+    updateScenarioStatus();
+  }
 
   if (playing && !sim.isDone()) {
     acc += realDt * speedMult;
@@ -141,9 +227,10 @@ function frame(now: number): void {
     if (steps > 0) sim.step(steps);
   }
 
-  renderer.draw(sim, traceId);
+  scene.render(sim, traceId, realDt);
   tripsChart.draw(sim.metrics.timesS, sim.metrics.activeTrips, sim.t);
   speedChart.draw(sim.metrics.timesS, sim.metrics.meanSpeedKmh, sim.t);
+  queueChart.draw(sim.metrics.timesS, sim.metrics.queued, sim.t);
   updateHud();
 
   fpsFrames++;

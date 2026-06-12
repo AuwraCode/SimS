@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SimS — Emergent City Traffic</title>
+    <title>SimS — Emergent City Sandbox</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -30,10 +30,24 @@
             <button id="trace" type="button">Trace random agent</button>
           </div>
         </section>
+        <section class="controls experiments">
+          <h3>acceptance experiments</h3>
+          <div class="row">
+            <button id="expFlatten" type="button">Flatten schedules</button>
+            <button id="expClose" type="button">Close bridge</button>
+          </div>
+          <div class="row">
+            <button id="expBoost" type="button">+50% agents</button>
+            <button id="expReset" type="button">Reset baseline</button>
+          </div>
+          <div id="scenarioStatus">baseline</div>
+        </section>
         <section id="hud">
           <div><span class="hudLabel">active trips</span><span id="hudActive">0</span></div>
           <div><span class="hudLabel">mean speed</span><span id="hudSpeed">—</span></div>
-          <div><span class="hudLabel">arrived</span><span id="hudArrived">0</span></div>
+          <div><span class="hudLabel">walking</span><span id="hudWalkers">0</span></div>
+          <div><span class="hudLabel">at work</span><span id="hudAtWork">0</span></div>
+          <div><span class="hudLabel">arrived legs</span><span id="hudArrived">0</span></div>
           <div><span class="hudLabel">waiting</span><span id="hudWaiting">0</span></div>
           <div><span class="hudLabel">fps</span><span id="hudFps">0</span></div>
         </section>
@@ -44,6 +58,10 @@
         <section class="chartBox">
           <h3>mean speed (km/h) vs time</h3>
           <canvas id="chartSpeed"></canvas>
+        </section>
+        <section class="chartBox">
+          <h3>queued vehicles vs time</h3>
+          <canvas id="chartQueue"></canvas>
         </section>
         <div id="traceInfo" hidden></div>
       </aside>

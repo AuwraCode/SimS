@@ -5,19 +5,28 @@ export interface UiHandlers {
   onSpeedChange(multiplier: number): void;
   onRestart(seed: number, n: number): void;
   onTrace(): void;
+  /** Toggles; each returns the new state for button labeling. */
+  onFlatten(): boolean;
+  onCloseBridge(): boolean;
+  onBoost(): void;
+  onReset(): void;
 }
 
 export interface Ui {
   clock: HTMLElement;
   hudActive: HTMLElement;
   hudSpeed: HTMLElement;
+  hudWalkers: HTMLElement;
+  hudAtWork: HTMLElement;
   hudArrived: HTMLElement;
   hudWaiting: HTMLElement;
   hudFps: HTMLElement;
   traceInfo: HTMLElement;
+  scenarioStatus: HTMLElement;
   setSeed(seed: number): void;
   setAgents(n: number): void;
-  speedMultiplier(): number;
+  setFlattenLabel(on: boolean): void;
+  setClosedLabel(closed: boolean): void;
 }
 
 function el<T extends HTMLElement>(id: string): T {
@@ -40,8 +49,8 @@ export function setupUi(handlers: UiHandlers, maxMult: number, initialMult: numb
   const speedValue = el<HTMLElement>("speedValue");
   const seed = el<HTMLInputElement>("seed");
   const agents = el<HTMLInputElement>("agents");
-  const restart = el<HTMLButtonElement>("restart");
-  const trace = el<HTMLButtonElement>("trace");
+  const flattenBtn = el<HTMLButtonElement>("expFlatten");
+  const closeBtn = el<HTMLButtonElement>("expClose");
 
   speed.value = String(multToSlider(initialMult, maxMult));
   speedValue.textContent = `${initialMult}×`;
@@ -54,31 +63,50 @@ export function setupUi(handlers: UiHandlers, maxMult: number, initialMult: numb
     speedValue.textContent = `${m}×`;
     handlers.onSpeedChange(m);
   });
-  restart.addEventListener("click", () => {
+  el<HTMLButtonElement>("restart").addEventListener("click", () => {
     handlers.onRestart(Number(seed.value) || 0, Number(agents.value) || 1);
   });
-  trace.addEventListener("click", () => {
+  el<HTMLButtonElement>("trace").addEventListener("click", () => {
     handlers.onTrace();
   });
+  flattenBtn.addEventListener("click", () => {
+    ui.setFlattenLabel(handlers.onFlatten());
+  });
+  closeBtn.addEventListener("click", () => {
+    ui.setClosedLabel(handlers.onCloseBridge());
+  });
+  el<HTMLButtonElement>("expBoost").addEventListener("click", () => {
+    handlers.onBoost();
+  });
+  el<HTMLButtonElement>("expReset").addEventListener("click", () => {
+    handlers.onReset();
+  });
 
-  return {
+  const ui: Ui = {
     clock: el("clock"),
     hudActive: el("hudActive"),
     hudSpeed: el("hudSpeed"),
+    hudWalkers: el("hudWalkers"),
+    hudAtWork: el("hudAtWork"),
     hudArrived: el("hudArrived"),
     hudWaiting: el("hudWaiting"),
     hudFps: el("hudFps"),
     traceInfo: el("traceInfo"),
+    scenarioStatus: el("scenarioStatus"),
     setSeed(s: number): void {
       seed.value = String(s);
     },
     setAgents(n: number): void {
       agents.value = String(n);
     },
-    speedMultiplier(): number {
-      return sliderToMult(Number(speed.value), maxMult);
+    setFlattenLabel(on: boolean): void {
+      flattenBtn.textContent = on ? "Restore schedules" : "Flatten schedules";
+    },
+    setClosedLabel(closed: boolean): void {
+      closeBtn.textContent = closed ? "Reopen bridge" : "Close bridge";
     },
   };
+  return ui;
 }
 
 export function fmtClock(s: number): string {
