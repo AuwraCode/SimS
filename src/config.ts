@@ -1,0 +1,195 @@
+/**
+ * Every tunable number in the simulation lives here. Nothing in sim/ may
+ * hardcode a magic constant — and, per The One Rule, nothing anywhere may make
+ * traffic a function of the clock. The ONLY time-of-day numbers below are the
+ * agents' plan distributions (population.startMix etc.).
+ *
+ * Units: internally everything is SI — meters, seconds, m/s. Helpers below
+ * convert from human units (km/h, minutes, hh:mm) at config-definition time.
+ */
+
+const kmh = (v: number): number => v / 3.6;
+const minutes = (m: number): number => m * 60;
+const hm = (h: number, m = 0): number => h * 3600 + m * 60;
+
+export const config = {
+  /** Master seed. Every run is fully reproducible from this one number. */
+  seed: 42,
+
+  sim: {
+    /** Fixed simulation timestep (s). Render framerate is decoupled. */
+    dt: 0.5,
+    /** Upper bound on sim steps per animation frame (slow tabs lose speed, never accuracy). */
+    maxStepsPerFrame: 60,
+    /** Default sim-seconds per real second. */
+    defaultSpeedMultiplier: 60,
+    minSpeedMultiplier: 1,
+    maxSpeedMultiplier: 600,
+    /** Simulation covers one day, 00:00–24:00. */
+    dayEndS: 24 * 3600,
+  },
+
+  /**
+   * Intelligent Driver Model parameters. These shape car-following dynamics;
+   * congestion emerges when many vehicles with these dynamics share an edge.
+   */
+  idm: {
+    /** Max acceleration (m/s²). 1.5 gives crisp urban queue discharge. */
+    a: 1.5,
+    /** Comfortable deceleration (m/s²). */
+    b: 2.0,
+    /** Standstill minimum gap (m). */
+    s0: 2.0,
+    /** Safe time headway range (s) — sampled per driver (heterogeneity). */
+    TMin: 1.2,
+    TMax: 1.6,
+    /** Vehicle length (m). Jam spacing = s0 + length ≈ 6.5 m/veh ≈ 154 veh/km/lane. */
+    vehicleLength: 4.5,
+    /** Per-driver desired-speed multiplier ~ N(1, sigma), clamped. */
+    v0Sigma: 0.08,
+    v0MulMin: 0.8,
+    v0MulMax: 1.25,
+    /** Hard floor on commanded deceleration (m/s²) — numerical safety. */
+    accelFloor: -9,
+    /** Approach speed cap when the next route edge turns a corner (m/s)… */
+    turnSpeed: 7,
+    /** …applied within this distance of the edge end (m). */
+    turnZone: 12,
+  },
+
+  /**
+   * Fixed-cycle, two-phase signals (phase A = north-south green, B = east-west).
+   * A periodic fixture: the same plan runs all 24 h, so signals cannot encode
+   * rush hour. Offsets are randomized per junction at worldgen.
+   */
+  signals: {
+    cycleS: 60,
+    /** Dead time after each green (all-red clearance). green = cycle/2 − lost. */
+    lostTimeS: 4,
+  },
+
+  /** Unsignalized (local×local) junctions: first-come-first-served. */
+  priority: {
+    /** A lane head within this distance of the stop line joins the FCFS queue (m). */
+    stopZoneM: 25,
+  },
+
+  /**
+   * Procedural city: a grid split by a river. The small north side holds the
+   * CBD (jobs), the large south side is residential (homes). Only 2 bridges
+   * cross — geography, not the clock, is what concentrates the morning flow.
+   *
+   * Rows are numbered north→south (row 0 = top of screen).
+   */
+  network: {
+    cols: 12,
+    rows: 9,
+    spacingM: 140,
+    /** Cosmetic node jitter (m); keeps the grid from looking sterile. */
+    jitterM: 12,
+    /** River lies between these two rows; no vertical edges cross elsewhere. */
+    riverNorthRow: 2,
+    riverSouthRow: 3,
+    /** Columns that carry a bridge. Bridge spans are ALWAYS 1 lane/direction — the calibrated bottleneck. */
+    bridgeCols: [3, 8],
+    /** Streets along these lines are arterials (2 lanes/dir, fast). */
+    arterialCols: [3, 7],
+    arterialRows: [1, 6],
+    speeds: {
+      arterial: kmh(60),
+      local: kmh(35),
+    },
+    lanesPerClass: {
+      arterial: 2,
+      local: 1,
+    },
+    /** CBD block (inclusive col/row ranges, north side). */
+    cbd: { col0: 4, col1: 6, row0: 0, row1: 2 },
+    /** Secondary commercial hubs: single high-job nodes. */
+    hubs: [
+      { col: 10, row: 1, jobW: 15 },
+      { col: 1, row: 7, jobW: 25 },
+    ],
+    /**
+     * Land-use weights → sampling distributions for homes and jobs.
+     * Resulting shares (derived, not enforced): ~90% of homes south of the
+     * river, ~78% of south residents' jobs north of it.
+     */
+    weights: {
+      cbd: { home: 0.5, job: 30 },
+      north: { home: 3, job: 2 },
+      south: { home: 10, job: 1 },
+    },
+  },
+
+  /**
+   * Population & daily plans — THE ONLY clock-coupled numbers in the project.
+   * Calibration identity (peak demand on the bridges, veh/min):
+   *   peak ≈ 1.1 · N · driverShare · southHomeShare · crossJobShare · mainMixWeight / (2.507 · σ_main_min)
+   *        ≈ 1.1 · N · 0.8 · 0.9 · 0.78 · 0.7 / (2.507 · 25)  ≈  0.0077 · N
+   * Two 1-lane bridges discharge ≈ 35–45 veh/min through signalized heads, so
+   * N = 5000 puts peak v/c at ≈ 0.9–1.1: the morning flow exceeds bridge
+   * capacity for ~45 min and queues MUST form — purely from plan overlap.
+   */
+  population: {
+    N: 5000,
+    /** Share of agents who drive; the rest work from home / walk (no road load). */
+    driverShare: 0.8,
+    /** Work start time ~ mixture of gaussians (the early / main / flexible-late workforce). */
+    startMix: [
+      { w: 0.15, mu: hm(6, 0), sigma: minutes(30) },
+      { w: 0.7, mu: hm(8, 15), sigma: minutes(25) },
+      { w: 0.15, mu: hm(9, 30), sigma: minutes(60) },
+    ],
+    startClampS: [hm(3, 30), hm(13, 0)] as [number, number],
+    /** Work duration (used by Phase 2 return trips; sampled now for stable RNG layout). */
+    workDur: { mu: hm(8, 30), sigma: minutes(60), min: hm(4), max: hm(11) },
+    /** Personal arrival buffer: depart = workStart − freeFlowTime − buffer. */
+    buffer: { mu: minutes(8), sigma: minutes(4), min: 60, max: minutes(25) },
+    /** Per-agent multiplier on arterial edge costs ~ N(1, sigma) — route-choice heterogeneity. */
+    arterialAffinitySigma: 0.1,
+    arterialAffinityClamp: [0.7, 1.4] as [number, number],
+    /** Per-(agent,edge) cost noise amplitude for tie-breaking among equal grid paths. */
+    tieNoise: 0.02,
+  },
+
+  metrics: {
+    /** Sampling cadence for the time-series charts (sim seconds). */
+    sampleEveryS: 60,
+    /** A vehicle below this speed counts as stopped (m/s). */
+    stoppedSpeed: 0.1,
+    /** Stopped longer than this (s) counts as "stuck" — gridlock telemetry. */
+    stuckThresholdS: 300,
+  },
+
+  render: {
+    vehiclePx: 3.2,
+    laneOffsetPx: 3.0,
+    roadWidthPx: { arterial: 5, local: 2.5 },
+    signalDotPx: 2.4,
+    paddingPx: 24,
+    colors: {
+      road: "#3a4150",
+      roadArterial: "#4a5366",
+      river: "#1d3a55",
+      cbdTint: "rgba(79,163,255,0.07)",
+      hubTint: "rgba(255,196,79,0.08)",
+      signalGreen: "#3dd68c",
+      signalRed: "#ff5d5d",
+      traceRoute: "#4fa3ff",
+      chartLine: "#4fa3ff",
+      chartGrid: "#262b33",
+      chartCursor: "#8b93a3",
+    },
+  },
+};
+
+export type SimsConfig = typeof config;
+
+/** Deep-ish clone so UI restarts can override (seed, N) without mutating defaults. */
+export function cloneConfig(overrides?: { seed?: number; n?: number }): SimsConfig {
+  const c = structuredClone(config);
+  if (overrides?.seed !== undefined) c.seed = overrides.seed;
+  if (overrides?.n !== undefined) c.population.N = overrides.n;
+  return c;
+}
