@@ -60,7 +60,7 @@ export class AgentsView {
 
     let wi = 0;
     const cap = (this.walkers.instanceMatrix.count as number) ?? 4096;
-    sim.walk.forEach((agentId, edgeId, posM) => {
+    const drawWalker = (agentId: number, edgeId: number, posM: number): void => {
       if (wi >= cap) return;
       const f = this.frames[edgeId];
       const edge = sim.net.edges[edgeId];
@@ -77,7 +77,9 @@ export class AgentsView {
         ),
       );
       wi++;
-    });
+    };
+    sim.walk.forEach(drawWalker);
+    sim.transit.forEachWalking(drawWalker); // riders on their access/egress legs
     this.walkers.count = wi;
     this.walkers.instanceMatrix.needsUpdate = true;
     if (this.walkers.instanceColor !== null) this.walkers.instanceColor.needsUpdate = true;

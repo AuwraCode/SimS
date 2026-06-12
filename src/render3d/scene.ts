@@ -6,6 +6,7 @@ import type { Simulation } from "../sim/sim";
 import { AgentsView } from "./agents3d";
 import { SkyTraffic } from "./ambient";
 import { CityMeshes } from "./city3d";
+import { Transit3D } from "./transit3d";
 import { disposeGroup } from "./util";
 
 /**
@@ -27,6 +28,7 @@ export class Scene3D {
 
   private city: CityMeshes;
   private agentsView: AgentsView;
+  private transit3d: Transit3D;
   private ambient: SkyTraffic;
   private traceLine: THREE.Line | null = null;
   private readonly traceBeacon: THREE.Mesh;
@@ -63,6 +65,7 @@ export class Scene3D {
 
     this.city = new CityMeshes(sim.net, sim.cfg);
     this.agentsView = new AgentsView(sim.net, sim.engine.cap, 4096);
+    this.transit3d = new Transit3D(sim.net, sim.line);
     const b = networkBounds(sim.net);
     this.ambient = new SkyTraffic(
       b,
@@ -72,6 +75,7 @@ export class Scene3D {
     );
     this.scene.add(this.city.group);
     this.scene.add(this.agentsView.group);
+    this.scene.add(this.transit3d.group);
     this.scene.add(this.ambient.group);
 
     this.center.set((b.x0 + b.x1) / 2, 0, (b.y0 + b.y1) / 2);
@@ -84,13 +88,17 @@ export class Scene3D {
   setSimulation(sim: Simulation): void {
     this.scene.remove(this.city.group);
     this.scene.remove(this.agentsView.group);
+    this.scene.remove(this.transit3d.group);
     this.city.dispose();
     disposeGroup(this.city.group);
     this.agentsView.dispose();
+    this.transit3d.dispose();
     this.city = new CityMeshes(sim.net, sim.cfg);
     this.agentsView = new AgentsView(sim.net, sim.engine.cap, 4096);
+    this.transit3d = new Transit3D(sim.net, sim.line);
     this.scene.add(this.city.group);
     this.scene.add(this.agentsView.group);
+    this.scene.add(this.transit3d.group);
     this.clearTrace();
   }
 
@@ -136,6 +144,7 @@ export class Scene3D {
     this.city.updateBuildings(sim.scheduler.workersAt, sim.scheduler.residentsAt, day);
     this.city.updateClosure(sim.arterialBridgeClosed());
     this.agentsView.update(sim);
+    this.transit3d.update(sim.transit, t);
     this.ambient.update(t);
     this.updateTrace(sim, traceId, realDt);
 
@@ -170,7 +179,31 @@ export class Scene3D {
       this.scene.add(this.traceLine);
     }
     this.traceBob += realDt * 3;
-    if (this.agentsView.entityPosition(sim, traceId, this.v3)) {
+    let located = this.agentsView.entityPosition(sim, traceId, this.v3);
+    if (!located) {
+      // Transit riders: walking legs, platforms, or aboard a tram.
+      const st = sim.transit.statusOf(traceId, sim.t);
+      if (st !== null) {
+        if (st.edgeId >= 0) {
+          located = false; // covered by entityPosition only for walk/cars; compute here
+          const e = sim.net.edges[st.edgeId];
+          const a = sim.net.nodes[e.from];
+          const b = sim.net.nodes[e.to];
+          const f = st.posM / e.lengthM;
+          this.v3.set(a.x + (b.x - a.x) * f, 1.0, a.y + (b.y - a.y) * f);
+          located = true;
+        } else if (st.node >= 0) {
+          const n = sim.net.nodes[st.node];
+          this.v3.set(n.x, 1.2, n.y);
+          located = true;
+        } else {
+          const c = this.transit3d.coordAt(st.trackPosM);
+          this.v3.set(c.x, 3.6, c.z);
+          located = true;
+        }
+      }
+    }
+    if (located) {
       this.traceBeacon.visible = true;
       this.traceBeacon.position.set(
         this.v3.x,

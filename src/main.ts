@@ -36,7 +36,8 @@ warpIfRequested(sim);
 
 function warpIfRequested(s: Simulation): void {
   if (urlWarp === null || s.tick > 0) return;
-  const warpS = Math.max(0, Math.min(24, Number(urlWarp))) * 3600;
+  // Hours, possibly spanning days: ?warp=103.5 = day 5, 07:30 (learned city).
+  const warpS = Math.max(0, Math.min(240, Number(urlWarp))) * 3600;
   s.step(Math.round(warpS / cfg.sim.dt));
 }
 
@@ -153,6 +154,7 @@ function updateHud(): void {
   ui.hudActive.textContent = String(sim.engine.activeCount);
   ui.hudSpeed.textContent = Number.isNaN(lastSpeed) ? "—" : `${lastSpeed.toFixed(1)} km/h`;
   ui.hudWalkers.textContent = String(sim.walk.count);
+  ui.hudRiders.textContent = String(sim.transit.count);
   ui.hudAtWork.textContent = String(atWork);
   ui.hudArrived.textContent = String(m.trips.length);
   ui.hudWaiting.textContent = String(sim.engine.waitingCount);
@@ -166,9 +168,18 @@ function updateHud(): void {
       (tr) => tr.agentId === traceId && tr.plannedDepartS >= dayBase,
     );
     const last = legs.length > 0 ? legs[legs.length - 1] : undefined;
+    const transitStatus = sim.transit.statusOf(traceId, sim.t);
     let status: string;
     if (slot >= 0) {
       status = `driving — ${((sim.engine.vel[slot] ?? 0) * 3.6).toFixed(0)} km/h (${legKind(legs.length)})`;
+    } else if (transitStatus !== null) {
+      const phaseNames = [
+        "walking to the stop",
+        "waiting on the platform",
+        "riding the tram",
+        "walking from the stop",
+      ];
+      status = `${phaseNames[transitStatus.phase]} (${legKind(legs.length)})`;
     } else if (isWalking(traceId)) {
       status = `walking (${legKind(legs.length)})`;
     } else if (last !== undefined && last.kind === "toHome") {

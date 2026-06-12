@@ -17,6 +17,7 @@ export interface Ui {
   hudActive: HTMLElement;
   hudSpeed: HTMLElement;
   hudWalkers: HTMLElement;
+  hudRiders: HTMLElement;
   hudAtWork: HTMLElement;
   hudArrived: HTMLElement;
   hudWaiting: HTMLElement;
@@ -87,6 +88,7 @@ export function setupUi(handlers: UiHandlers, maxMult: number, initialMult: numb
     hudActive: el("hudActive"),
     hudSpeed: el("hudSpeed"),
     hudWalkers: el("hudWalkers"),
+    hudRiders: el("hudRiders"),
     hudAtWork: el("hudAtWork"),
     hudArrived: el("hudArrived"),
     hudWaiting: el("hudWaiting"),

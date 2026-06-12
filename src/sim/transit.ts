@@ -337,6 +337,35 @@ export class TransitSystem {
       cb(r.agentId, r.phase, leg !== null ? leg.distM : 0);
     }
   }
+
+  /** Where is this agent? (trace beacon / status text). Null if not riding. */
+  statusOf(
+    agentId: number,
+    t: number,
+  ): { phase: Phase; edgeId: number; posM: number; node: number; trackPosM: number } | null {
+    for (const r of this.riders) {
+      if (r.agentId !== agentId) continue;
+      const leg = r.phase === 0 ? r.leg1 : r.phase === 3 ? r.leg2 : null;
+      if (leg !== null) {
+        const before = leg.idx > 0 ? leg.cum[leg.idx - 1] : 0;
+        return {
+          phase: r.phase,
+          edgeId: leg.route[leg.idx],
+          posM: leg.distM - before,
+          node: -1,
+          trackPosM: 0,
+        };
+      }
+      if (r.phase === 1) return { phase: 1, edgeId: -1, posM: 0, node: r.waitNode, trackPosM: 0 };
+      // On board: linear interpolation between stops is plenty for a beacon.
+      const j0 = this.line.stopPathIdx[r.boardStop];
+      const j1 = this.line.stopPathIdx[r.alightStop];
+      const f = Math.min(1, Math.max(0, (t - r.boardDepS) / (r.alightS - r.boardDepS)));
+      const pos = this.line.cumDistM[j0] + (this.line.cumDistM[j1] - this.line.cumDistM[j0]) * f;
+      return { phase: 2, edgeId: -1, posM: 0, node: -1, trackPosM: pos };
+    }
+    return null;
+  }
 }
 
 /** Move a walk leg forward; true when finished. */
