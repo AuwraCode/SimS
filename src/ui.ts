@@ -5,6 +5,9 @@ export interface UiHandlers {
   onSpeedChange(multiplier: number): void;
   onRestart(seed: number, n: number): void;
   onTrace(): void;
+  /** Returns the new muted state for labeling. */
+  onToggleSound(): boolean;
+  onTriggerFire(): void;
   /** Toggles; each returns the new state for button labeling. */
   onFlatten(): boolean;
   onCloseBridge(): boolean;
@@ -21,6 +24,8 @@ export interface Ui {
   hudAtWork: HTMLElement;
   hudArrived: HTMLElement;
   hudWaiting: HTMLElement;
+  hudMoney: HTMLElement;
+  hudFires: HTMLElement;
   hudFps: HTMLElement;
   traceInfo: HTMLElement;
   scenarioStatus: HTMLElement;
@@ -70,6 +75,13 @@ export function setupUi(handlers: UiHandlers, maxMult: number, initialMult: numb
   el<HTMLButtonElement>("trace").addEventListener("click", () => {
     handlers.onTrace();
   });
+  const soundBtn = el<HTMLButtonElement>("sound");
+  soundBtn.addEventListener("click", () => {
+    soundBtn.textContent = handlers.onToggleSound() ? "Sound: off" : "Sound: on";
+  });
+  el<HTMLButtonElement>("triggerFire").addEventListener("click", () => {
+    handlers.onTriggerFire();
+  });
   flattenBtn.addEventListener("click", () => {
     ui.setFlattenLabel(handlers.onFlatten());
   });
@@ -92,6 +104,8 @@ export function setupUi(handlers: UiHandlers, maxMult: number, initialMult: numb
     hudAtWork: el("hudAtWork"),
     hudArrived: el("hudArrived"),
     hudWaiting: el("hudWaiting"),
+    hudMoney: el("hudMoney"),
+    hudFires: el("hudFires"),
     hudFps: el("hudFps"),
     traceInfo: el("traceInfo"),
     scenarioStatus: el("scenarioStatus"),

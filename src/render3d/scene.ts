@@ -70,7 +70,7 @@ export class Scene3D {
 
     this.city = new CityMeshes(sim.net, sim.cfg);
     this.places3d = new PlacesView(sim.net, sim.cfg, sim.places);
-    this.agentsView = new AgentsView(sim.net, sim.engine.cap, 4096);
+    this.agentsView = new AgentsView(sim.net, sim.engine.cap, Math.min(sim.engine.cap, 16384));
     this.transit3d = new Transit3D(sim.net, sim.line);
     const b = networkBounds(sim.net);
     this.ambient = new SkyTraffic(
@@ -112,7 +112,7 @@ export class Scene3D {
     this.transit3d.dispose();
     this.city = new CityMeshes(sim.net, sim.cfg);
     this.places3d = new PlacesView(sim.net, sim.cfg, sim.places);
-    this.agentsView = new AgentsView(sim.net, sim.engine.cap, 4096);
+    this.agentsView = new AgentsView(sim.net, sim.engine.cap, Math.min(sim.engine.cap, 16384));
     this.transit3d = new Transit3D(sim.net, sim.line);
     this.scene.add(this.city.group);
     this.scene.add(this.places3d.group);
@@ -140,9 +140,13 @@ export class Scene3D {
     return Math.min(up, down);
   }
 
+  /** Most recent day/night factor (0 = night, 1 = day) — for the audio mix. */
+  lastDay01 = 1;
+
   render(sim: Simulation, traceId: number | null, realDt: number): void {
     const t = sim.t;
     const day = this.day01(sim.cfg, t);
+    this.lastDay01 = day;
 
     // Sky, fog, lights.
     this.skyScratch.copy(this.skyNight).lerp(this.skyDay, day);

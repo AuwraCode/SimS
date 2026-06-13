@@ -1,3 +1,4 @@
+import { AudioEngine } from "./audio";
 import { cloneConfig, config } from "./config";
 import { TimeChart } from "./render/charts";
 import { Scene3D } from "./render3d/scene";
@@ -43,6 +44,8 @@ function warpIfRequested(s: Simulation): void {
 
 const cityCanvas = document.getElementById("city") as HTMLCanvasElement;
 const scene = new Scene3D(cityCanvas, sim);
+const audio = new AudioEngine();
+const MAX_AGENTS = 200000;
 
 const palette = config.render;
 const tripsChart = new TimeChart(
@@ -102,7 +105,7 @@ const ui = setupUi(
       speedMult = m;
     },
     onRestart(seed: number, n: number): void {
-      restart({ ...scenario, seed, n: Math.max(1, Math.min(50000, n)) });
+      restart({ ...scenario, seed, n: Math.max(1, Math.min(MAX_AGENTS, n)) });
     },
     onTrace(): void {
       const movers = sim.agents.filter(
@@ -111,6 +114,15 @@ const ui = setupUi(
       if (movers.length === 0) return;
       traceId = movers[Math.floor(Math.random() * movers.length)].id;
       ui.traceInfo.hidden = false;
+    },
+    onToggleSound(): boolean {
+      audio.resume(); // the click is the user gesture that unlocks audio
+      return audio.toggleMute();
+    },
+    onTriggerFire(): void {
+      // UI-side randomness (Math.random) — must not touch the sim's streams.
+      const node = Math.floor(Math.random() * sim.net.nodes.length);
+      sim.emergency.igniteAt(node, sim.t);
     },
     onFlatten(): boolean {
       restart({ ...scenario, flatten: !scenario.flatten });
@@ -122,7 +134,7 @@ const ui = setupUi(
       return sim.arterialBridgeClosed();
     },
     onBoost(): void {
-      restart({ ...scenario, n: Math.min(50000, Math.round(scenario.n * 1.5)) });
+      restart({ ...scenario, n: Math.min(MAX_AGENTS, Math.round(scenario.n * 1.5)) });
     },
     onReset(): void {
       restart({ ...baseScenario });
@@ -158,6 +170,11 @@ function updateHud(): void {
   ui.hudAtWork.textContent = String(atWork);
   ui.hudArrived.textContent = String(m.trips.length);
   ui.hudWaiting.textContent = String(sim.engine.waitingCount);
+  const popN = cfg.population.N;
+  let moneySum = 0;
+  for (let i = 0; i < popN && i < sim.agents.length; i++) moneySum += sim.agents[i].money;
+  ui.hudMoney.textContent = popN > 0 ? `$${Math.round(moneySum / popN).toLocaleString()}` : "—";
+  ui.hudFires.textContent = String(sim.emergency.activeCount);
   ui.clock.innerHTML = `<span class="day">Day ${sim.day + 1}</span>${fmtClock(sim.t)}`;
 
   if (traceId !== null) {
@@ -193,9 +210,17 @@ function updateHud(): void {
       status = "leaving any moment";
     }
     const expected = a.mode === "transit" ? a.expectedTransitS : a.expectedS;
+    const hn = sim.net.nodes[a.home];
+    const activity =
+      a.errand !== null
+        ? `errand → ${a.errand.kind}`
+        : a.outing !== null
+          ? `outing → ${a.outing.kind}`
+          : "no extra trips";
     ui.traceInfo.innerHTML =
-      `<b>agent #${a.id}</b> (${a.mode}${a.errand !== null ? ", errand planned" : ""}) — ` +
-      `at work by <b>${fmtClock(a.workStartS)}</b>, ~${(a.workDurS / 3600).toFixed(1)} h day<br>` +
+      `<b>agent #${a.id}</b> (${a.mode}) — at work by <b>${fmtClock(a.workStartS)}</b>, ` +
+      `~${(a.workDurS / 3600).toFixed(1)} h day<br>` +
+      `home col ${hn.col}, row ${hn.row} · balance <b>$${Math.round(a.money).toLocaleString()}</b> · ${activity}<br>` +
       `plans to leave ${fmtClock(a.departS)} (expects ${(expected / 60).toFixed(1)} min ` +
       `+ ${(a.bufferS / 60).toFixed(0)} min buffer)<br>status: ${status}`;
   }
@@ -245,6 +270,14 @@ function frame(now: number): void {
   speedChart.draw(sim.metrics.timesS, sim.metrics.meanSpeedKmh, sim.t);
   queueChart.draw(sim.metrics.timesS, sim.metrics.queued, sim.t);
   updateHud();
+
+  const q = sim.metrics.queued;
+  audio.update(
+    sim.engine.activeCount / 500,
+    (q.length > 0 ? q[q.length - 1] : 0) / 200,
+    scene.lastDay01,
+    sim.emergency.activeCount > 0 || sim.emergency.vehicles.length > 0,
+  );
 
   fpsFrames++;
   if (now - fpsLastT >= 500) {
