@@ -113,6 +113,9 @@ export function buildPopulation(cfg: SimsConfig, net: Network, rng: Rng): Agent[
         departS: workStartS + errandAfterS,
         dwellS: errandDwellS,
         node: errandNode,
+        // Retargeted onto a real POI (with its cost) by assignEconomy.
+        kind: "shop",
+        cost: 0,
       };
     }
 
@@ -132,6 +135,10 @@ export function buildPopulation(cfg: SimsConfig, net: Network, rng: Rng): Agent[
       transitBaseS: 0,
       transitAffinity,
       errand,
+      outing: null, // filled by assignEconomy
+      money: 0,
+      wage: 0,
+      wfhPay: 0,
       v0mul,
       T,
       walkSpeed,

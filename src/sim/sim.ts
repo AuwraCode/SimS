@@ -2,6 +2,7 @@ import type { SimsConfig } from "../config";
 import { applyDayLearning } from "./learning";
 import { Metrics } from "./metrics";
 import { buildNetwork } from "./network";
+import { assignEconomy, buildPlaces, type Places } from "./places";
 import { buildPopulation } from "./population";
 import { makeStream } from "./rng";
 import { Router } from "./routing";
@@ -19,6 +20,7 @@ export interface Simulation {
   cfg: SimsConfig;
   net: Network;
   agents: Agent[];
+  places: Places;
   engine: TrafficEngine;
   walk: WalkSystem;
   transit: TransitSystem;
@@ -45,12 +47,17 @@ export interface Simulation {
 export function createSimulation(cfg: SimsConfig): Simulation {
   const worldRng = makeStream(cfg.seed, "worldgen");
   const popRng = makeStream(cfg.seed, "population");
+  const econRng = makeStream(cfg.seed, "economy");
 
   const net = buildNetwork(cfg, worldRng);
   const agents = buildPopulation(cfg, net, popRng);
+  const places = buildPlaces(cfg, net, makeStream(cfg.seed, "places"));
   const router = new Router(cfg, net);
   const line = buildLine(cfg, net);
   finalizePlans(cfg, agents, router, line, net);
+  // Economy runs AFTER finalizePlans so each agent's final mode is known
+  // (outings are drivers-only). Its own stream keeps commute draws untouched.
+  assignEconomy(cfg, agents, places, econRng);
 
   const walk = new WalkSystem(net);
   const transit = new TransitSystem(net, line, cfg.network.spacingM);
@@ -68,6 +75,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
     cfg,
     net,
     agents,
+    places,
     engine,
     walk,
     transit,
@@ -126,6 +134,10 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         transitBaseS: 0,
         transitAffinity: 1,
         errand: null,
+        outing: null,
+        money: 0,
+        wage: 0,
+        wfhPay: 0,
         v0mul: 1,
         T: (cfg.idm.TMin + cfg.idm.TMax) / 2,
         walkSpeed: 1.4,
@@ -189,6 +201,8 @@ export function createSimulation(cfg: SimsConfig): Simulation {
         mix(trip.agentId);
         mixF(trip.arriveS);
       }
+      // Economy is deterministic too — fold every balance into the fingerprint.
+      for (const a of agents) mixF(a.money);
       return (h >>> 0).toString(16).padStart(8, "0");
     },
   };

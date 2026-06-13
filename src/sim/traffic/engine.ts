@@ -4,8 +4,14 @@ import type { Agent, NetEdge, Network, SpawnRequest, TripArrival, TripKind } fro
 import { ballistic, ballisticOut, type Idm, idmAccel, makeIdm } from "./idm";
 import { isApproachGreen } from "./junction";
 
-const KINDS: TripKind[] = ["toWork", "toErrand", "errandReturn", "toHome"];
-const KIND_IDX: Record<TripKind, number> = { toWork: 0, toErrand: 1, errandReturn: 2, toHome: 3 };
+const KINDS: TripKind[] = ["toWork", "toErrand", "errandReturn", "toOuting", "toHome"];
+const KIND_IDX: Record<TripKind, number> = {
+  toWork: 0,
+  toErrand: 1,
+  errandReturn: 2,
+  toOuting: 3,
+  toHome: 4,
+};
 
 /**
  * Microscopic traffic engine: a pool of vehicles in structure-of-arrays typed

@@ -173,6 +173,54 @@ export const config = {
   },
 
   /**
+   * Land use beyond homes & jobs (Phase 4). Points of interest are scattered
+   * procedurally at worldgen from a DEDICATED rng stream, and agents VISIT them
+   * as part of their sampled plan (midday errands + after-work outings). Adding
+   * this layer therefore leaves the calibrated commute streams — and every
+   * morning-peak number in the README — bit-for-bit untouched. Nothing here
+   * reads the clock.
+   *
+   * Per kind: how many to place, in which `zone`, whether it is an after-work
+   * `leisure` destination, and the money a visit costs (uniform range; a casino
+   * gambles the stake instead of spending it).
+   */
+  places: {
+    kinds: {
+      shop: { count: 38, zone: "any", leisure: false, cost: [8, 45] },
+      gas: { count: 10, zone: "arterial", leisure: false, cost: [40, 95] },
+      mall: { count: 5, zone: "commercial", leisure: true, cost: [30, 220] },
+      hospital: { count: 3, zone: "any", leisure: false, cost: [0, 0] },
+      pool: { count: 5, zone: "south", leisure: true, cost: [10, 32] },
+      park: { count: 4, zone: "south", leisure: true, cost: [15, 65] },
+      casino: { count: 3, zone: "north", leisure: true, cost: [60, 420] },
+      fireStation: { count: 4, zone: "any", leisure: false, cost: [0, 0] },
+      police: { count: 4, zone: "any", leisure: false, cost: [0, 0] },
+    } as Record<string, { count: number; zone: string; leisure: boolean; cost: [number, number] }>,
+    /** Share of (non-wfh) agents who take an after-work outing to a leisure POI. */
+    outingShare: 0.22,
+    /** Outing dwell range (s). */
+    outingDwellS: [minutes(40), minutes(150)] as [number, number],
+  },
+
+  /**
+   * Per-agent economy (Phase 4). Pure flavour layered on top of the traffic —
+   * money never feeds back into routing or demand, so it cannot affect the
+   * emergent peaks. It is fully deterministic all the same: balances and wages
+   * are sampled from the economy stream, earnings derive from hours ACTUALLY
+   * worked, and a casino visit's win/loss is a stateless hash of (agent, day).
+   */
+  economy: {
+    /** Opening bank balance ~ uniform. */
+    startBalance: [200, 4200] as [number, number],
+    /** Hourly wage ~ N(mu, sigma) clamped. */
+    wage: { mu: 27, sigma: 11, min: 9, max: 85 },
+    /** Work-from-home agents earn this flat pay every simulated day. */
+    wfhDailyPay: [110, 270] as [number, number],
+    /** Casino: win probability, and the multiple of the stake won on a win. */
+    casino: { winProb: 0.46, winMult: 1.9 },
+  },
+
+  /**
    * Congestion-aware routing (Phase 2). Drivers route at departure on
    * OBSERVED edge travel times (exponential averages of what real vehicles
    * just experienced), decaying back to free flow as observations go stale.

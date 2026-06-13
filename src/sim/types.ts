@@ -51,13 +51,41 @@ export interface Network {
 
 export type AgentMode = "car" | "walk" | "wfh" | "transit";
 
-export type TripKind = "toWork" | "toErrand" | "errandReturn" | "toHome";
+export type TripKind = "toWork" | "toErrand" | "errandReturn" | "toOuting" | "toHome";
+
+/**
+ * Points of interest beyond homes & jobs (Phase 4). Placed procedurally at
+ * worldgen; agents VISIT them as part of their sampled plan. Stations are the
+ * dispatch bases for the emergency subsystem.
+ */
+export type PoiKind =
+  | "shop"
+  | "gas"
+  | "mall"
+  | "hospital"
+  | "pool"
+  | "park"
+  | "casino"
+  | "fireStation"
+  | "police";
 
 export interface ErrandPlan {
   /** Planned departure from work (s of day). */
   departS: number;
   dwellS: number;
   node: number;
+  /** Which POI this errand visits (display + money). */
+  kind: PoiKind;
+  /** Money spent on the visit (a casino visit gambles it instead). */
+  cost: number;
+}
+
+/** An after-work leisure trip: work → a leisure POI → home. */
+export interface OutingPlan {
+  node: number;
+  kind: PoiKind;
+  dwellS: number;
+  cost: number;
 }
 
 export interface Agent {
@@ -84,6 +112,14 @@ export interface Agent {
   /** Comfort multiplier on transit cost (>1 = prefers the car). */
   transitAffinity: number;
   errand: ErrandPlan | null;
+  /** After-work leisure trip (Phase 4); null for most agents. */
+  outing: OutingPlan | null;
+  /** Bank balance (currency units). Earned at work, spent at POIs. */
+  money: number;
+  /** Hourly wage — money earned per hour actually worked. */
+  wage: number;
+  /** Flat daily pay for work-from-home agents (0 for commuters). */
+  wfhPay: number;
   /** IDM heterogeneity. */
   v0mul: number;
   T: number;

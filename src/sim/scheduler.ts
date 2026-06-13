@@ -1,8 +1,9 @@
 import type { SimsConfig } from "../config";
+import { hash2 } from "./rng";
 import type { Router } from "./routing";
 import type { TrafficEngine } from "./traffic/engine";
 import type { TransitSystem } from "./transit";
-import type { Agent, Network, TripArrival, TripEvent, TripKind } from "./types";
+import type { Agent, Network, PoiKind, TripArrival, TripEvent, TripKind } from "./types";
 import type { WalkSystem } from "./walkers";
 
 /**
@@ -21,6 +22,8 @@ export class Scheduler {
   tick = 0;
   private readonly dt: number;
   private readonly chainGapS: number;
+  private readonly casinoWinProb: number;
+  private readonly casinoWinMult: number;
   private readonly heap: TripEvent[] = [];
   private seq = 0;
   /** People currently inside buildings, by node. */
@@ -40,6 +43,8 @@ export class Scheduler {
   ) {
     this.dt = cfg.sim.dt;
     this.chainGapS = cfg.population.chainGapS;
+    this.casinoWinProb = cfg.economy.casino.winProb;
+    this.casinoWinMult = cfg.economy.casino.winMult;
     this.workersAt = new Int32Array(net.nodes.length);
     this.residentsAt = new Int32Array(net.nodes.length);
     for (const a of agents) {
@@ -51,7 +56,11 @@ export class Scheduler {
   scheduleDay(dayIdx: number): void {
     const base = dayIdx * 86400;
     for (const a of this.agents) {
-      if (a.mode === "wfh" || a.probe === true) continue;
+      if (a.probe === true) continue;
+      if (a.mode === "wfh") {
+        a.money += a.wfhPay; // a day's pay without leaving the house
+        continue;
+      }
       this.push(base + a.departS, a.id, "toWork", a.home, a.work);
     }
   }
@@ -177,9 +186,33 @@ export class Scheduler {
   }
 
   private leaveBuilding(ev: TripEvent, agent: Agent): void {
-    if (ev.kind === "toWork") this.residentsAt[agent.home]--;
-    else if (ev.kind === "toErrand" || ev.kind === "toHome") this.workersAt[agent.work]--;
+    if (ev.kind === "toWork") {
+      this.residentsAt[agent.home]--;
+    } else if (ev.from === agent.work) {
+      // Any leg that ORIGINATES at the workplace empties one desk: a midday
+      // errand, an outing, or the trip home. (A toHome that starts at a POI —
+      // after an outing — must not, which is why we key on the origin node.)
+      this.workersAt[agent.work]--;
+      // The final leg leaving work (home or an outing) banks the day's wages,
+      // proportional to hours actually spent at work — not to any clock rule.
+      if (ev.kind === "toHome" || ev.kind === "toOuting") {
+        agent.money += (agent.wage * agent.workDurS) / 3600;
+      }
+    }
     // errandReturn departs from the shop — no tracked occupancy there.
+  }
+
+  /** A POI visit moves money: a flat spend, or a gambled stake at a casino. */
+  private spend(agent: Agent, kind: PoiKind, amount: number, dayIdx: number): void {
+    if (amount <= 0) return;
+    if (kind === "casino") {
+      // Stateless per-(agent, day) outcome — deterministic, no stream draw.
+      if (hash2(agent.id, dayIdx) < this.casinoWinProb)
+        agent.money += amount * (this.casinoWinMult - 1);
+      else agent.money -= amount;
+    } else {
+      agent.money -= amount;
+    }
   }
 
   /** Chain the rest of the day off real arrival times (all absolute seconds). */
@@ -191,6 +224,7 @@ export class Scheduler {
     // The day this leg belongs to — derived from its planned departure, so a
     // straggler arriving just past midnight still chains within its own day.
     const dayBase = Math.floor(arr.plannedDepartS / 86400) * 86400;
+    const dayIdx = dayBase / 86400;
     switch (arr.kind) {
       case "toWork": {
         this.workersAt[agent.work]++;
@@ -204,38 +238,46 @@ export class Scheduler {
             agent.errand.node,
           );
         } else {
-          this.push(
-            Math.max(dayBase + agent.workStartS + agent.workDurS, earliestNext),
-            agent.id,
-            "toHome",
-            agent.work,
-            agent.home,
-          );
+          this.endOfWorkday(agent, dayBase, earliestNext);
         }
         break;
       }
       case "toErrand": {
         const errand = agent.errand;
         if (errand !== null) {
+          this.spend(agent, errand.kind, errand.cost, dayIdx);
           this.push(arr.arriveS + errand.dwellS, agent.id, "errandReturn", errand.node, agent.work);
         }
         break;
       }
       case "errandReturn": {
         this.workersAt[agent.work]++;
-        this.push(
-          Math.max(dayBase + agent.workStartS + agent.workDurS, earliestNext),
-          agent.id,
-          "toHome",
-          agent.work,
-          agent.home,
-        );
+        this.endOfWorkday(agent, dayBase, earliestNext);
+        break;
+      }
+      case "toOuting": {
+        // At the leisure POI: pay (or gamble) and head home after the dwell.
+        const outing = agent.outing;
+        if (outing !== null) {
+          this.spend(agent, outing.kind, outing.cost, dayIdx);
+          this.push(arr.arriveS + outing.dwellS, agent.id, "toHome", outing.node, agent.home);
+        }
         break;
       }
       case "toHome": {
         this.residentsAt[agent.home]++;
         break;
       }
+    }
+  }
+
+  /** End of the workday: head straight home, or detour to a leisure POI first. */
+  private endOfWorkday(agent: Agent, dayBase: number, earliestNext: number): void {
+    const leaveAt = Math.max(dayBase + agent.workStartS + agent.workDurS, earliestNext);
+    if (agent.outing !== null && agent.mode === "car") {
+      this.push(leaveAt, agent.id, "toOuting", agent.work, agent.outing.node);
+    } else {
+      this.push(leaveAt, agent.id, "toHome", agent.work, agent.home);
     }
   }
 }
