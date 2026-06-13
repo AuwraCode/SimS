@@ -352,6 +352,28 @@ export const config = {
       },
       sunriseH: 5.5,
       sunsetH: 20.5,
+      /** Greenery & street furniture (Phase 4) — all instanced for high N. */
+      trees: { count: 320, foliage: 0x2f6b3a, trunk: 0x5b4632 },
+      streetlight: { pole: 0x4a525e, lamp: 0xffe6a6 },
+      /** Per-POI-kind palette (Phase 4). */
+      poi: {
+        shop: 0xb56a4a,
+        gas: 0xdbe2ea,
+        gasSign: 0xff5a3c,
+        mall: 0x8a8f9c,
+        mallSign: 0x6fd3ff,
+        hospital: 0xeef2f6,
+        hospitalCross: 0xe23b3b,
+        pool: 0x2aa6d6,
+        poolDeck: 0xd9c7a3,
+        park: 0xd24b8c,
+        parkRim: 0xffd23f,
+        casino: 0x161019,
+        casinoNeon: 0xff3da6,
+        fireStation: 0xc23a2c,
+        police: 0x274b8f,
+        emergencyLight: 0xff4040,
+      },
     },
   },
 };

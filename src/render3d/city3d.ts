@@ -31,6 +31,9 @@ export class CityMeshes {
   private readonly signalNodes: number[] = [];
   private readonly buildingMesh: THREE.InstancedMesh;
   private readonly buildings: BuildingInfo[] = [];
+  private readonly streetLampMesh: THREE.InstancedMesh;
+  private readonly lampOn = new THREE.Color();
+  private readonly lampOff = new THREE.Color(0x2a2f38);
   private readonly closureGroup = new THREE.Group();
   private readonly colorScratch = new THREE.Color();
 
@@ -209,6 +212,110 @@ export class CityMeshes {
     this.buildingMesh.instanceMatrix.needsUpdate = true;
     this.group.add(this.buildingMesh);
 
+    // --- Pitched roofs on short houses; rooftop plant on towers ---
+    const roofBoxes = boxes.filter((b) => !b.info.biz && b.sy <= 20);
+    const roofMesh = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(1, 1, 4),
+      new THREE.MeshLambertMaterial({ color: 0x6e4b3a }),
+      roofBoxes.length,
+    );
+    for (let i = 0; i < roofBoxes.length; i++) {
+      const box = roofBoxes[i];
+      const roofH = uniform(rng, 3.5, 6.5);
+      dummy.position.set(box.x, box.sy + roofH / 2, box.z);
+      dummy.rotation.set(0, Math.PI / 4, 0); // align the 4-sided pyramid to the walls
+      dummy.scale.set(box.sx * 0.78, roofH, box.sz * 0.78);
+      dummy.updateMatrix();
+      roofMesh.setMatrixAt(i, dummy.matrix);
+    }
+    roofMesh.instanceMatrix.needsUpdate = true;
+    this.group.add(roofMesh);
+
+    const towerBoxes = boxes.filter((b) => b.info.biz && b.sy >= 38);
+    const unitMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: 0x474c56 }),
+      towerBoxes.length,
+    );
+    for (let i = 0; i < towerBoxes.length; i++) {
+      const box = towerBoxes[i];
+      const uh = uniform(rng, 3, 6);
+      dummy.position.set(box.x, box.sy + uh / 2, box.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(box.sx * 0.42, uh, box.sz * 0.42);
+      dummy.updateMatrix();
+      unitMesh.setMatrixAt(i, dummy.matrix);
+    }
+    unitMesh.instanceMatrix.needsUpdate = true;
+    this.group.add(unitMesh);
+
+    // --- Trees (own stream; render-only, never touches sim determinism) ---
+    const treeRng = makeStream(cfg.seed, "trees");
+    const tc = c3.trees;
+    const spacing = cfg.network.spacingM;
+    const foliage = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(1, 1, 7),
+      new THREE.MeshLambertMaterial({ color: tc.foliage }),
+      tc.count,
+    );
+    const trunk = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.3, 0.42, 1, 6),
+      new THREE.MeshLambertMaterial({ color: tc.trunk }),
+      tc.count,
+    );
+    for (let i = 0; i < tc.count; i++) {
+      const node = net.nodes[Math.floor(treeRng() * net.nodes.length)];
+      const ang = treeRng() * Math.PI * 2;
+      const rad = uniform(treeRng, spacing * 0.22, spacing * 0.46);
+      const tx = node.x + Math.cos(ang) * rad;
+      const tz = node.y + Math.sin(ang) * rad;
+      const fh = uniform(treeRng, 5, 10);
+      const trunkH = fh * 0.4;
+      const fr = uniform(treeRng, 2.2, 3.6);
+      dummy.rotation.set(0, 0, 0);
+      dummy.position.set(tx, trunkH / 2, tz);
+      dummy.scale.set(1, trunkH, 1);
+      dummy.updateMatrix();
+      trunk.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(tx, trunkH + fh / 2, tz);
+      dummy.scale.set(fr, fh, fr);
+      dummy.updateMatrix();
+      foliage.setMatrixAt(i, dummy.matrix);
+    }
+    foliage.instanceMatrix.needsUpdate = true;
+    trunk.instanceMatrix.needsUpdate = true;
+    this.group.add(trunk);
+    this.group.add(foliage);
+
+    // --- Streetlights at signalized junctions (lamps glow after dark) ---
+    const poleMesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.35, 0.45, 9, 6),
+      new THREE.MeshLambertMaterial({ color: c3.streetlight.pole }),
+      this.signalNodes.length,
+    );
+    this.streetLampMesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(0.9, 8, 8),
+      new THREE.MeshBasicMaterial(),
+      this.signalNodes.length,
+    );
+    this.lampOn.set(c3.streetlight.lamp);
+    for (let i = 0; i < this.signalNodes.length; i++) {
+      const node = net.nodes[this.signalNodes[i]];
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.position.set(node.x + 6, 4.5, node.y + 6);
+      dummy.updateMatrix();
+      poleMesh.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(node.x + 6, 9.2, node.y + 6);
+      dummy.updateMatrix();
+      this.streetLampMesh.setMatrixAt(i, dummy.matrix);
+      this.streetLampMesh.setColorAt(i, this.lampOff);
+    }
+    poleMesh.instanceMatrix.needsUpdate = true;
+    this.streetLampMesh.instanceMatrix.needsUpdate = true;
+    this.group.add(poleMesh);
+    this.group.add(this.streetLampMesh);
+
     // --- Closure barriers on the arterial bridge (hidden until the experiment) ---
     for (const e of net.edges) {
       if (!e.isBridge || !cfg.network.arterialCols.includes(e.bridgeCol) || e.id % 2 !== 0)
@@ -272,6 +379,13 @@ export class CityMeshes {
     }
     if (this.buildingMesh.instanceColor !== null)
       this.buildingMesh.instanceColor.needsUpdate = true;
+
+    // Streetlights: warm pools of light that fade up after dusk.
+    const lit = night < 0.06 ? 0 : Math.min(1, (night - 0.06) * 1.6);
+    const lc = this.colorScratch.copy(this.lampOff).lerp(this.lampOn, lit);
+    for (let i = 0; i < this.signalNodes.length; i++) this.streetLampMesh.setColorAt(i, lc);
+    if (this.streetLampMesh.instanceColor !== null)
+      this.streetLampMesh.instanceColor.needsUpdate = true;
   }
 
   updateClosure(closed: boolean): void {
