@@ -75,64 +75,90 @@ export const config = {
   },
 
   /**
-   * Procedural city: a grid split by a river. The small north side holds the
-   * CBD (jobs), the large south side is residential (homes). Only 2 bridges
-   * cross — geography, not the clock, is what concentrates the morning flow.
+   * Procedural city: a larger grid split by a river. The redesign (Phase 5) is
+   * POLYCENTRIC — employment is spread across both banks (a north CBD, several
+   * business/tech clusters, plus the airport and port districts) instead of
+   * funnelling every commute to one place. Four two-lane bridges and wider
+   * arterials carry the cross-river flow. Geography, not the clock, still
+   * shapes demand; there is just more of it and more capacity, so the city
+   * scales to tens of thousands of agents without seizing into permanent
+   * gridlock the way the single-CBD / two-lane-bridge layout did.
    *
    * Rows are numbered north→south (row 0 = top of screen).
    */
   network: {
-    cols: 12,
-    rows: 9,
+    cols: 18,
+    rows: 13,
     spacingM: 140,
     /** Cosmetic node jitter (m); keeps the grid from looking sterile. */
     jitterM: 12,
     /** River lies between these two rows; no vertical edges cross elsewhere. */
-    riverNorthRow: 2,
-    riverSouthRow: 3,
-    /** Columns that carry a bridge. Bridge spans are ALWAYS 1 lane/direction — the calibrated bottleneck. */
-    bridgeCols: [3, 8],
-    /** Streets along these lines are arterials (2 lanes/dir, fast). */
-    arterialCols: [3, 7],
-    arterialRows: [1, 6],
+    riverNorthRow: 4,
+    riverSouthRow: 5,
+    /** Columns that carry a bridge (each an arterial avenue feeding it). */
+    bridgeCols: [3, 7, 11, 15],
+    /** Lanes per direction on every bridge span (was the 1-lane bottleneck). */
+    bridgeLanes: 2,
+    /** Streets along these lines are arterials (wide, fast). */
+    arterialCols: [3, 7, 11, 15],
+    arterialRows: [2, 6, 9],
     speeds: {
-      arterial: kmh(60),
-      local: kmh(35),
+      arterial: kmh(65),
+      local: kmh(38),
     },
     lanesPerClass: {
       arterial: 2,
       local: 1,
     },
-    /** CBD block (inclusive col/row ranges, north side). */
-    cbd: { col0: 4, col1: 6, row0: 0, row1: 2 },
-    /** Secondary commercial hubs: single high-job nodes. */
+    /** North CBD block (inclusive col/row ranges). */
+    cbd: { col0: 7, col1: 10, row0: 0, row1: 3 },
+    /**
+     * Employment clusters spread across BOTH banks — this is what de-funnels
+     * the morning rush: most south residents can now find work south of the
+     * river, so far fewer trips chase the bridges.
+     */
     hubs: [
-      { col: 10, row: 1, jobW: 15 },
-      { col: 1, row: 7, jobW: 25 },
+      // North-bank secondary centres (east & west of the CBD).
+      { col: 1, row: 1, jobW: 11 },
+      { col: 2, row: 2, jobW: 10 },
+      { col: 15, row: 2, jobW: 12 },
+      { col: 16, row: 1, jobW: 10 },
+      // South-west business district.
+      { col: 3, row: 8, jobW: 15 },
+      { col: 4, row: 8, jobW: 12 },
+      { col: 3, row: 9, jobW: 11 },
+      // South-east tech park.
+      { col: 13, row: 9, jobW: 16 },
+      { col: 14, row: 9, jobW: 12 },
+      { col: 13, row: 10, jobW: 11 },
+      // South-central retail/office node.
+      { col: 9, row: 11, jobW: 12 },
     ],
     /**
-     * Land-use weights → sampling distributions for homes and jobs.
-     * Resulting shares (derived, not enforced): ~90% of homes south of the
-     * river, ~78% of south residents' jobs north of it.
+     * Land-use weights → sampling distributions for homes and jobs. The south
+     * bank now carries real employment (job 3, was 1), so a large share of
+     * south residents work locally and cross-river demand drops sharply; with
+     * three two-lane bridges (≈3× the old capacity) the morning rush still
+     * forms a visible bridge queue but clears, and the city scales past 20k
+     * agents where the single-CBD / two-lane-bridge layout seized up.
      */
     weights: {
-      cbd: { home: 0.5, job: 30 },
-      north: { home: 3, job: 2 },
-      south: { home: 10, job: 1 },
+      cbd: { home: 0.5, job: 20 },
+      north: { home: 3, job: 3 },
+      south: { home: 8, job: 3 },
     },
   },
 
   /**
    * Population & daily plans — THE ONLY clock-coupled numbers in the project.
-   * Calibration identity (peak demand on the bridges, veh/min):
-   *   peak ≈ 1.1 · N · driverShare · southHomeShare · crossJobShare · mainMixWeight / (2.507 · σ_main_min)
-   *        ≈ 1.1 · N · 0.8 · 0.9 · 0.78 · 0.7 / (2.507 · 25)  ≈  0.0077 · N
-   * Two 1-lane bridges discharge ≈ 35–45 veh/min through signalized heads, so
-   * N = 5000 puts peak v/c at ≈ 0.9–1.1: the morning flow exceeds bridge
-   * capacity for ~45 min and queues MUST form — purely from plan overlap.
+   * The morning peak still emerges from plan overlap funnelling cross-river
+   * commuters onto a finite set of bridges; the polycentric land use (most
+   * jobs reachable without crossing) is what lets demand scale. The default
+   * N = 14000 fills the larger city to a clear-but-clearing rush hour; it runs
+   * smoothly past 20k and only seizes well beyond that (try +50%).
    */
   population: {
-    N: 5000,
+    N: 14000,
     /** Mode mixture: wfh stays home, walk-preferrers walk when the trip is short enough, the rest drive. */
     modes: { wfh: 0.08, walkPref: 0.12 },
     walk: {
@@ -301,37 +327,42 @@ export const config = {
   },
 
   /**
-   * Public transit (Phase 3): one tram line on its own right-of-way, an
-   * L from the southern residential spine over the river into the CBD.
-   * The timetable is a periodic fixture (like signals); WHO rides is learned.
+   * Public transit (Phase 3): one tram line on its own right-of-way, running
+   * the southern residential spine up column 7, over the river, and east into
+   * the CBD. The timetable is a periodic fixture (like signals); WHO rides is
+   * learned.
    */
   transit: {
     headwayS: 300,
     dwellS: 25,
     speed: kmh(45),
     path: [
-      { col: 3, row: 8 },
-      { col: 3, row: 7 },
-      { col: 3, row: 6 },
-      { col: 3, row: 5 },
-      { col: 3, row: 4 },
-      { col: 3, row: 3 },
-      { col: 3, row: 2 },
-      { col: 3, row: 1 },
-      { col: 4, row: 1 },
-      { col: 5, row: 1 },
-      { col: 6, row: 1 },
+      { col: 7, row: 12 },
+      { col: 7, row: 11 },
+      { col: 7, row: 10 },
+      { col: 7, row: 9 },
+      { col: 7, row: 8 },
+      { col: 7, row: 7 },
+      { col: 7, row: 6 },
+      { col: 7, row: 5 },
+      { col: 7, row: 4 },
+      { col: 7, row: 3 },
+      { col: 7, row: 2 },
       { col: 7, row: 1 },
+      { col: 8, row: 1 },
+      { col: 9, row: 1 },
+      { col: 10, row: 1 },
     ],
     stops: [
-      { col: 3, row: 8 },
-      { col: 3, row: 6 },
-      { col: 3, row: 4 },
-      { col: 3, row: 3 },
-      { col: 3, row: 2 },
-      { col: 3, row: 1 },
-      { col: 5, row: 1 },
+      { col: 7, row: 12 },
+      { col: 7, row: 10 },
+      { col: 7, row: 8 },
+      { col: 7, row: 6 },
+      { col: 7, row: 5 },
+      { col: 7, row: 3 },
       { col: 7, row: 1 },
+      { col: 9, row: 1 },
+      { col: 10, row: 1 },
     ],
     /** Transit is an option when both walk legs are within this distance. */
     maxAccessM: 600,

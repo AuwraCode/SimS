@@ -70,8 +70,17 @@ export function createSimulation(cfg: SimsConfig): Simulation {
   scheduler.scheduleDay(0);
   let learnedUpTo = 0; // index into metrics.trips already consumed by learning
 
+  // The "close a bridge" experiment shuts ONE arterial bridge (the lowest
+  // such column) so traffic visibly reroutes onto the parallel crossings —
+  // with several bridges now, closing them all would just sever the banks.
+  const arterialBridgeColsSet = new Set(
+    net.edges
+      .filter((e) => e.isBridge && cfg.network.arterialCols.includes(e.bridgeCol))
+      .map((e) => e.bridgeCol),
+  );
+  const closeCol = [...arterialBridgeColsSet].sort((a, b) => a - b)[0];
   const arterialBridgeEdges = net.edges
-    .filter((e) => e.isBridge && cfg.network.arterialCols.includes(e.bridgeCol))
+    .filter((e) => e.isBridge && e.bridgeCol === closeCol)
     .map((e) => e.id);
 
   return {

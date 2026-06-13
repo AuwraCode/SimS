@@ -72,7 +72,7 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
     isBridge: boolean,
     bridgeCol: number,
   ) => {
-    const lanes = isBridge ? 1 : cfg.network.lanesPerClass[klass];
+    const lanes = isBridge ? cfg.network.bridgeLanes : cfg.network.lanesPerClass[klass];
     const vmax = cfg.network.speeds[klass];
     const dx = nodes[b].x - nodes[a].x;
     const dy = nodes[b].y - nodes[a].y;
