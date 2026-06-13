@@ -1,20 +1,21 @@
 # SimS — Emergent City Sandbox
 
-A real-time, agent-based 3D city that runs day after day. Thousands of
+A real-time, agent-based 3D city that runs day after day. Tens of thousands of
 individual people plan their own day ("be at work by 08:23, ~8.5 h, maybe a
-lunch errand, then home"), drive, walk or ride the tram toward the jobs
-across the river — and the city's rhythm **emerges**: a morning rush hour, a
-softer evening peak, businesses lighting up as their workers physically
-arrive, residential windows glowing after dark, platform crowds swelling
-before 8 am, planes drifting overhead.
+lunch errand, then home"), drive, walk or ride the tram toward jobs spread
+across both banks of the river — and the city's rhythm **emerges**: a morning
+rush hour, a softer evening peak, businesses lighting up as their workers
+physically arrive, residential windows glowing after dark, platform crowds
+swelling before 8 am, planes drifting overhead.
 
 It is also a place to *live in*: shops, malls, a hospital, gas stations,
 swimming pools, a casino and an amusement park (with a turning ferris wheel)
-dot the map; every agent carries a bank balance, earns wages for the hours
-they actually work, and spends it on errands and after-work outings. Cargo
-ships glide the river, fires break out and draw strobing fire engines and
-police, and an optional synthesized soundscape rises and falls with the
-traffic. None of it bends The One Rule.
+dot the map, an airport and a river port anchor the edges, and low-rise
+villages ring the outskirts; every agent carries a bank balance, earns wages
+for the hours they actually work, and spends it on errands and after-work
+outings. Cargo ships glide the river, fires break out and draw strobing fire
+engines and police, and an optional synthesized soundscape rises and falls
+with the traffic. None of it bends The One Rule.
 
 And then the city **learns**. Every night each agent reconciles what they
 experienced with what they expected; over successive days the morning peak
@@ -25,7 +26,8 @@ individual memory.
 ![day — morning rush in 3D](docs/sandbox-day.png)
 *Day 1, ~08:30 — red chains of queued cars spill back from the two bridges;
 a teal tram crosses its own track beside the arterial bridge; CBD towers
-north of the river.*
+north of the river. (Screenshots predate the Phase 5 redesign — the live city
+is now larger and polycentric, with four bridges, an airport and a port.)*
 
 ![learning — day 5 charts](docs/learning-ghosts.png)
 *Day 5 — faded ghosts of days 1–4 under today's bright line: the morning
@@ -79,9 +81,14 @@ no time-of-day constants outside the plan distributions.
    around 08:15; 15% of drivers plan a midday errand; everyone returns after
    their personal work duration. Trips CHAIN off real arrivals — a commute
    that congestion made 40 min late pushes that person's whole day.
-2. **Geography**: homes mostly south of the river, jobs mostly north; only
-   two one-lane bridges cross. ~38 veh/min aim at bridges that discharge
-   ~23 veh/min through their signals → the morning queue MUST form.
+2. **Geography**: homes weighted toward the larger south bank, jobs spread
+   across BOTH banks (a north CBD plus south business/tech clusters, the
+   airport and the port). The cross-river commuters that remain funnel onto a
+   finite set of bridges, so the morning queue still forms there — but the
+   polycentric land use keeps most trips local, which is what lets the city
+   scale (see **Phase 5** below). *(Phases 1–3 used a single north CBD and two
+   one-lane bridges — a deliberately tight bottleneck calibrated for N=5000;
+   the numbers in the tables below were measured on that original city.)*
 3. **Microscopic physics** (`sim/traffic/idm.ts`): every vehicle runs the
    Intelligent Driver Model; queues, stop-and-go waves and **spillback**
    (full edges refuse entry, jams grow backwards) follow from gap dynamics.
@@ -98,12 +105,24 @@ no time-of-day constants outside the plan distributions.
 
 ## Acceptance experiments — proving it's emergent (buttons in the UI)
 
+The original single-CBD / two-one-lane-bridge city (Phases 1–3, N=5000):
+
 | experiment | result (seed 42, N = 5000) | proves |
 |---|---|---|
 | baseline | am peak 442 active, min 4.6 km/h; pm peak 94, min 16 km/h | the two peaks exist |
 | **Flatten schedules** (`--flatten`) | peaks collapse to ~33; never below 18 km/h | peaks come from schedule overlap, not any time-based code |
 | **Close bridge** at 07:45 (`--close`) | arterial-bridge flow → 0; local bridge jumps to its 15 /min ceiling; 1059 active at 0.9 km/h; p90 64 min | congestion re-routes spatially and intensifies on parallels |
 | **+50% agents** (`--boost 1.5`) | am peak 1386, pm 578; evening also collapses (3.5 km/h) | congestion is coupled to road capacity, nonlinearly |
+
+The same experiments on the **Phase 5 polycentric city** (seed 42, default
+N=14000) — the relief is visible, but the proofs still hold:
+
+| experiment | result (seed 42, N = 14000) | proves |
+|---|---|---|
+| baseline | am peak 481 active @ 08:02, min 18.6 km/h; clears by 09:00 | a peak still emerges, but the spread jobs + 4 two-lane bridges keep it flowing |
+| **Flatten schedules** | am peak collapses to ~110, peak/mean 4.96 → 3.52 | the peak is still pure schedule overlap, not any clock code |
+| **Close bridge** | one arterial bridge → 0; queue +20% as flow reroutes onto the other three | congestion re-routes spatially even with spare capacity |
+| **+50% agents** (≈21k) | am peak 946, min 16.2 km/h; still drains | headroom — heavy load is absorbed; full gridlock only near ~30k |
 
 Demand→capacity coupling (baseline morning): N=2000 → bridges underloaded,
 p90 2.9 min; N=3000 → at capacity, brief saturation; N=5000 → v/c > 1,
@@ -128,6 +147,15 @@ The peak migrates **30 minutes earlier and shrinks 26%**, lateness collapses
 toward zero, and the tram's mode share grows monotonically from nothing —
 two relief valves (when to leave, what to ride) opened by nothing but
 individual experience. The ghost charts in the UI show it live.
+
+*Note (Phase 5):* this table is the original N=5000 single-CBD city, where the
+bridges saturated and there was real pain to learn from. The polycentric
+redesign deliberately relieves that pressure, so at the default N=14000 the
+commute is near free-flow (p90 ≈ 2.5 min) and the nightly revision sits mostly
+idle — there is nothing to correct. The learning machinery is unchanged; it
+re-engages, with the same peak-migration and tram-adoption behaviour, once you
+load the city back to the knee of its capacity (push N toward ~26–30k via
+repeated **+50% agents**).
 
 ## City life (Phase 4) — a place to live, not just commute
 
@@ -164,13 +192,44 @@ peak stays bit-for-bit identical (am peak 515 @ 08:28, both before and after).
 The richer 3D city also gains pitched roofs on houses, rooftop plant on
 towers, instanced trees and streetlights that warm up after dusk.
 
+## Scaling up (Phase 5) — a bigger, polycentric city
+
+The original city was a deliberately tight bottleneck (one north CBD, two
+one-lane bridges) — perfect for *showing* emergent gridlock at N=5000, but it
+seized into permanent jam well before 20k because every commute chased the
+same place across the same two bridges. Phase 5 reworks the geography so
+demand scales:
+
+- **Bigger grid** (18×13, was 12×9) with the river lower so the north bank is
+  larger.
+- **Polycentric employment**: a smaller north CBD plus a south-west business
+  district, a south-east tech park, secondary north centres, and the airport
+  and port — so most south residents now work *south* of the river. Cross-river
+  demand drops sharply; nobody-funnels-to-one-place.
+- **Bigger roads**: four two-lane bridges (was two one-lane) on wide arterial
+  avenues. The *close-a-bridge* experiment now shuts one so traffic reroutes
+  onto the parallels instead of severing the banks.
+- **Airport & port** as land-use *districts* (`node.district`) with bespoke
+  landmarks (runway + terminal + control tower; quay + gantry cranes + a
+  docked freighter), and **satellite villages** on the outskirts — low-rise
+  homes whose residents commute in.
+
+Result (seed 42): the default **N=14000** fills the larger city to a clear,
+flowing morning peak; **N=20000** is a busy rush hour (~12–18 km/h) that still
+drains where the old layout permanently gridlocked; only around **~30k** does
+it finally seize. The trade for this headroom is that the morning commute at
+the default is near free-flow, so the Phase 3 learning response is idle until
+the city is loaded back toward capacity (see the note above).
+
 ## Module map
 
 ```
 src/config.ts               every tunable; the only time-of-day numbers are
                             the plan distributions
 src/sim/rng.ts              mulberry32 + named sub-streams; full determinism
-src/sim/network.ts          procedural city: grid, river, 2 bridges, CBD/hubs
+src/sim/network.ts          procedural polycentric city: 18×13 grid, river,
+                            4 two-lane bridges, CBD/hubs + districts (airport,
+                            port, villages)
 src/sim/population.ts       agents & daily plans (THE only clock-coupled code)
 src/sim/places.ts           POIs (own stream) + per-agent economy/outings layer
 src/sim/routing.ts          Router: per-edge EMA of observed times + Dijkstra;
@@ -194,9 +253,10 @@ src/sim/sim.ts              framework-agnostic façade (probes, closures,
                             midnight rollover, hash)
 src/audio.ts                opt-in Web Audio soundscape (synthesized; render-side)
 src/render3d/               three.js sandbox: city (roofs, trees, streetlights),
-                            POI landmarks, instanced cars/pedestrians, tram +
-                            platform crowds, signals, planes, ships, fires +
-                            strobing responders, day/night sky
+                            POI landmarks, airport + port (landmarks3d),
+                            instanced cars/pedestrians, tram + platform crowds,
+                            signals, planes, ships, fires + strobing
+                            responders, day/night sky
 src/render/charts.ts        dependency-free 24h charts with multi-day ghosts
 scripts/headless.ts         Node runner: calibration, probes, experiments,
                             --days learning table, determinism hashes
@@ -226,11 +286,18 @@ deliberately uses `Math.random` — it must not touch sim streams.
   spending), fires with fire/police response, river ships, a synthesized
   soundscape, and a 200k-agent ceiling. All layered without disturbing the
   calibrated commute (separate streams; morning peak unchanged).
+- **Phase 5 (done)**: a bigger, polycentric city that scales — 18×13 grid,
+  jobs spread across both banks, four two-lane bridges, airport/port districts
+  with landmarks, and satellite villages. Fixes the permanent gridlock past
+  ~8k by de-funnelling demand; runs a busy-but-clearing rush hour at 20k.
 
 ## Assumptions & known simplifications
 
-- The river + two one-lane bridges are the deliberate structural bottleneck;
-  default N = 5000 (an open grid would need ~12–16k agents to jam).
+- The river + bridges are the structural bottleneck; Phase 5 widened it to
+  four two-lane bridges and spread jobs across both banks, so the default is
+  now N = 14000 and the city only fully gridlocks near ~30k. Airport, port and
+  villages are rectangular land-use districts; villages are corner low-rise
+  residential, not detached off-grid hamlets.
 - Lanes are independent FIFOs chosen at entry; no mid-edge lane changes, no
   protected left turns; junctions are zero-length with a 7 m/s corner cap.
 - Signals only at arterial junctions and bridgeheads; local×local crossings

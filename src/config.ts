@@ -157,6 +157,11 @@ export const config = {
     districts: [
       { kind: "airport", col0: 15, col1: 17, row0: 10, row1: 12, home: 0.3, job: 14 },
       { kind: "port", col0: 0, col1: 1, row0: 5, row1: 7, home: 0.3, job: 11 },
+      // Low-rise satellite villages on the outskirts: lots of homes, little
+      // work, so their residents commute into the city proper.
+      { kind: "village", col0: 0, col1: 2, row0: 11, row1: 12, home: 7, job: 0.5 },
+      { kind: "village", col0: 0, col1: 1, row0: 0, row1: 1, home: 6, job: 0.4 },
+      { kind: "village", col0: 16, col1: 17, row0: 0, row1: 1, home: 6, job: 0.4 },
     ] as { kind: string; col0: number; col1: number; row0: number; row1: number; home: number; job: number }[],
   },
 
@@ -414,6 +419,7 @@ export const config = {
         hub: [22, 55] as [number, number],
         northRes: [10, 26] as [number, number],
         southRes: [6, 16] as [number, number],
+        village: [5, 11] as [number, number],
       },
       sunriseH: 5.5,
       sunsetH: 20.5,

@@ -161,13 +161,16 @@ export class CityMeshes {
       if (node.district === "airport" || node.district === "port") continue;
       const cbd = inCbd(node.col, node.row);
       const hub = hubAt(node.col, node.row);
-      const heights = cbd
-        ? c3.heights.cbd
-        : hub
-          ? c3.heights.hub
-          : node.north
-            ? c3.heights.northRes
-            : c3.heights.southRes;
+      const village = node.district === "village";
+      const heights = village
+        ? c3.heights.village
+        : cbd
+          ? c3.heights.cbd
+          : hub
+            ? c3.heights.hub
+            : node.north
+              ? c3.heights.northRes
+              : c3.heights.southRes;
       const count = Math.round(
         uniform(rng, c3.buildingsPerNode[0], c3.buildingsPerNode[1] + (cbd ? 1 : 0)),
       );
@@ -177,7 +180,7 @@ export class CityMeshes {
         const offX = uniform(rng, 20, cfg.network.spacingM / 2 - 26) * quadX;
         const offZ = uniform(rng, 20, cfg.network.spacingM / 2 - 26) * quadZ;
         const h = uniform(rng, heights[0], heights[1]);
-        const biz = cbd || hub || node.jobW >= 10 || (node.north && rng() < 0.35);
+        const biz = !village && (cbd || hub || node.jobW >= 10 || (node.north && rng() < 0.35));
         const palette = biz ? bizPalette : homePalette;
         const info: BuildingInfo = {
           nodeId: node.id,
