@@ -1,4 +1,5 @@
 import type { SimsConfig } from "../config";
+import { EmergencySystem } from "./emergency";
 import { applyDayLearning } from "./learning";
 import { Metrics } from "./metrics";
 import { buildNetwork } from "./network";
@@ -27,6 +28,7 @@ export interface Simulation {
   line: TransitLine;
   scheduler: Scheduler;
   metrics: Metrics;
+  emergency: EmergencySystem;
   /** Current sim time, ABSOLUTE seconds (day 2 starts at 86400). */
   readonly t: number;
   readonly tick: number;
@@ -64,6 +66,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
   const engine = new TrafficEngine(cfg, net, agents, router);
   const scheduler = new Scheduler(cfg, net, agents, engine, walk, transit, router);
   const metrics = new Metrics(cfg, net);
+  const emergency = new EmergencySystem(cfg, net, router, places);
   scheduler.scheduleDay(0);
   let learnedUpTo = 0; // index into metrics.trips already consumed by learning
 
@@ -82,6 +85,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
     line,
     scheduler,
     metrics,
+    emergency,
     get t() {
       return scheduler.t;
     },
@@ -95,6 +99,7 @@ export function createSimulation(cfg: SimsConfig): Simulation {
       for (let s = 0; s < nSteps; s++) {
         scheduler.step();
         metrics.update(scheduler.t, engine, walk, transit, scheduler);
+        emergency.step(scheduler.t, cfg.sim.dt);
         // Midnight rollover: everyone sleeps on what the day taught them,
         // then tomorrow's departures enter the heap.
         const t = scheduler.t;
@@ -203,6 +208,17 @@ export function createSimulation(cfg: SimsConfig): Simulation {
       }
       // Economy is deterministic too — fold every balance into the fingerprint.
       for (const a of agents) mixF(a.money);
+      // Emergencies are deterministic too (Poisson hazard off a seeded stream).
+      mix(emergency.ignitedCount);
+      for (const f of emergency.fires) {
+        mix(f.node);
+        mix(f.state === "burning" ? 1 : 0);
+      }
+      for (const v of emergency.vehicles) {
+        mix(v.id);
+        mix(v.edgeIdx);
+        mixF(v.posM);
+      }
       return (h >>> 0).toString(16).padStart(8, "0");
     },
   };

@@ -6,6 +6,7 @@ import type { Simulation } from "../sim/sim";
 import { AgentsView } from "./agents3d";
 import { RiverShips, SkyTraffic } from "./ambient";
 import { CityMeshes } from "./city3d";
+import { Emergency3D } from "./emergency3d";
 import { PlacesView } from "./places3d";
 import { Transit3D } from "./transit3d";
 import { disposeGroup } from "./util";
@@ -33,6 +34,7 @@ export class Scene3D {
   private transit3d: Transit3D;
   private ambient: SkyTraffic;
   private ships: RiverShips;
+  private readonly emergency3d = new Emergency3D();
   private traceLine: THREE.Line | null = null;
   private readonly traceBeacon: THREE.Mesh;
   private readonly v3 = new THREE.Vector3();
@@ -89,6 +91,7 @@ export class Scene3D {
     this.scene.add(this.transit3d.group);
     this.scene.add(this.ambient.group);
     this.scene.add(this.ships.group);
+    this.scene.add(this.emergency3d.group);
 
     this.center.set((b.x0 + b.x1) / 2, 0, (b.y0 + b.y1) / 2);
     this.camera.position.set(this.center.x - 350, 1050, this.center.z + 1500);
@@ -164,6 +167,7 @@ export class Scene3D {
     this.transit3d.update(sim.transit, t);
     this.ambient.update(t);
     this.ships.update(t);
+    this.emergency3d.update(sim.emergency, t);
     this.updateTrace(sim, traceId, realDt);
 
     this.controls.update();

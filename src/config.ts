@@ -221,6 +221,26 @@ export const config = {
   },
 
   /**
+   * Emergencies (Phase 4). Fires ignite as a memoryless Poisson hazard — a
+   * CONSTANT per-second rate (clock-independent), so this respects The One
+   * Rule like the planes and tram timetable. Fire engines and police cars are
+   * dispatched from the nearest station and run hot to the scene; they ride
+   * the road network but NOT the microscopic engine, so the calibrated traffic
+   * is untouched.
+   */
+  emergency: {
+    enabled: true,
+    /** Mean fires that break out per hour, city-wide. */
+    firesPerHour: 1.4,
+    /** Cap on simultaneous active fires (also bounds the hazard). */
+    maxActive: 4,
+    /** Seconds an engine works the scene before the fire is out. */
+    suppressS: minutes(4),
+    /** Responder cruising speed (m/s) — they ignore congestion. */
+    vehicleSpeedMs: kmh(70),
+  },
+
+  /**
    * Congestion-aware routing (Phase 2). Drivers route at departure on
    * OBSERVED edge travel times (exponential averages of what real vehicles
    * just experienced), decaying back to free flow as observations go stale.
