@@ -71,3 +71,94 @@ export class SkyTraffic {
     }
   }
 }
+
+interface ShipPath {
+  start: THREE.Vector3;
+  end: THREE.Vector3;
+  lengthM: number;
+  phase: number;
+  group: THREE.Group;
+}
+
+/**
+ * Cargo ships gliding the river east↔west — the waterborne twin of the
+ * planes. Same periodic-loop decoration: their motion is a function of sim
+ * time alone and couples to nothing.
+ */
+export class RiverShips {
+  readonly group = new THREE.Group();
+  private readonly ships: ShipPath[] = [];
+  private readonly containerCols = [0xc4503f, 0x3f7fc4, 0x4fae7a, 0xd6b23f, 0x8a6fc4];
+
+  constructor(
+    bounds: { x0: number; y0: number; x1: number; y1: number },
+    river: { y0: number; y1: number },
+    count: number,
+    private readonly speedMs: number,
+  ) {
+    const span = bounds.x1 - bounds.x0 + 1800;
+    const cx = (bounds.x0 + bounds.x1) / 2;
+    const cz = (river.y0 + river.y1) / 2;
+    const laneStep = (river.y1 - river.y0) * 0.26;
+    for (let i = 0; i < count; i++) {
+      const dir = i % 2 === 0 ? 1 : -1;
+      const z = cz + (i - (count - 1) / 2) * laneStep;
+      const start = new THREE.Vector3(cx - (dir * span) / 2, 1, z);
+      const end = new THREE.Vector3(cx + (dir * span) / 2, 1, z);
+      const ship = this.buildShip(i);
+      ship.rotation.y = dir === 1 ? 0 : Math.PI;
+      this.group.add(ship);
+      this.ships.push({ start, end, lengthM: span, phase: (i * span) / count, group: ship });
+    }
+  }
+
+  private buildShip(i: number): THREE.Group {
+    const ship = new THREE.Group();
+    const hull = new THREE.Mesh(
+      new THREE.BoxGeometry(48, 5, 11),
+      new THREE.MeshLambertMaterial({ color: 0x2c3641 }),
+    );
+    hull.position.y = 2.5;
+    ship.add(hull);
+    const deck = new THREE.Mesh(
+      new THREE.BoxGeometry(40, 1, 10),
+      new THREE.MeshLambertMaterial({ color: 0x3c4753 }),
+    );
+    deck.position.y = 5.4;
+    ship.add(deck);
+    // Container stacks.
+    for (let c = 0; c < 9; c++) {
+      const col = this.containerCols[(i + c) % this.containerCols.length];
+      const tiers = 1 + ((i + c) % 2);
+      for (let tier = 0; tier < tiers; tier++) {
+        const box = new THREE.Mesh(
+          new THREE.BoxGeometry(3.6, 2.4, 8.6),
+          new THREE.MeshLambertMaterial({ color: col }),
+        );
+        box.position.set(-17 + c * 4, 7 + tier * 2.5, 0);
+        ship.add(box);
+      }
+    }
+    // Bridge house + funnel at the stern.
+    const bridge = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 7, 9),
+      new THREE.MeshLambertMaterial({ color: 0xe6e9ee }),
+    );
+    bridge.position.set(20, 9, 0);
+    ship.add(bridge);
+    const funnel = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.4, 1.6, 5, 10),
+      new THREE.MeshLambertMaterial({ color: 0xb24632 }),
+    );
+    funnel.position.set(22, 14, 0);
+    ship.add(funnel);
+    return ship;
+  }
+
+  update(simT: number): void {
+    for (const f of this.ships) {
+      const u = ((simT * this.speedMs + f.phase) % f.lengthM) / f.lengthM;
+      f.group.position.lerpVectors(f.start, f.end, u);
+    }
+  }
+}

@@ -321,11 +321,14 @@ export const config = {
     unusedModeRelax: 0.12,
   },
 
-  /** Ambient sky traffic — pure decoration on periodic loops (no demand coupling). */
+  /** Ambient sky & river traffic — pure decoration on periodic loops (no demand coupling). */
   ambient: {
     planes: 3,
     planeAltitudeM: 420,
     planeSpeedMs: 80,
+    /** Cargo ships gliding the river east↔west. */
+    ships: 3,
+    shipSpeedMs: 7,
   },
 
   render: {
