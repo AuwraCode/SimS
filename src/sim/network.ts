@@ -35,9 +35,16 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
       const jy = uniform(rng, -n.jitterM, n.jitterM);
       const north = row <= n.riverNorthRow;
       const hub = n.hubs.find((h) => h.col === col && h.row === row);
+      const district = n.districts.find(
+        (d) => col >= d.col0 && col <= d.col1 && row >= d.row0 && row <= d.row1,
+      );
       let homeW: number;
       let jobW: number;
-      if (inCbd(col, row)) {
+      if (district !== undefined) {
+        // Special districts (airport, port…) override everything else here.
+        homeW = district.home;
+        jobW = district.job;
+      } else if (inCbd(col, row)) {
         homeW = n.weights.cbd.home;
         jobW = n.weights.cbd.job;
       } else if (north) {
@@ -56,6 +63,7 @@ export function buildNetwork(cfg: SimsConfig, rng: Rng): Network {
         north,
         homeW,
         jobW,
+        district: district !== undefined ? district.kind : "",
         signal: null,
         outEdges: [],
         inEdges: [],

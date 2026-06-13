@@ -157,6 +157,8 @@ export class CityMeshes {
     const bizPalette = [0x76808f, 0x8a93a5, 0x9aa6b8, 0x6f7a92];
     const homePalette = [0x9a7f6a, 0x8d7a5f, 0xa08a74, 0x7c6f5c];
     for (const node of net.nodes) {
+      // Airport & port get bespoke landmarks instead of generic blocks.
+      if (node.district === "airport" || node.district === "port") continue;
       const cbd = inCbd(node.col, node.row);
       const hub = hubAt(node.col, node.row);
       const heights = cbd

@@ -147,6 +147,17 @@ export const config = {
       north: { home: 3, job: 3 },
       south: { home: 8, job: 3 },
     },
+    /**
+     * Special land-use districts (rectangular, inclusive). They override the
+     * bank/CBD/hub weights on their nodes, tag those nodes (for skipping the
+     * generic building generator there and placing a landmark instead), and —
+     * for the airport and port — are sizeable employers that pull commuter
+     * trips out toward the map edges, spreading demand further.
+     */
+    districts: [
+      { kind: "airport", col0: 15, col1: 17, row0: 10, row1: 12, home: 0.3, job: 14 },
+      { kind: "port", col0: 0, col1: 1, row0: 5, row1: 7, home: 0.3, job: 11 },
+    ] as { kind: string; col0: number; col1: number; row0: number; row1: number; home: number; job: number }[],
   },
 
   /**

@@ -7,6 +7,7 @@ import { AgentsView } from "./agents3d";
 import { RiverShips, SkyTraffic } from "./ambient";
 import { CityMeshes } from "./city3d";
 import { Emergency3D } from "./emergency3d";
+import { Landmarks3D } from "./landmarks3d";
 import { PlacesView } from "./places3d";
 import { Transit3D } from "./transit3d";
 import { disposeGroup } from "./util";
@@ -30,6 +31,7 @@ export class Scene3D {
 
   private city: CityMeshes;
   private places3d: PlacesView;
+  private landmarks: Landmarks3D;
   private agentsView: AgentsView;
   private transit3d: Transit3D;
   private ambient: SkyTraffic;
@@ -70,6 +72,7 @@ export class Scene3D {
 
     this.city = new CityMeshes(sim.net, sim.cfg);
     this.places3d = new PlacesView(sim.net, sim.cfg, sim.places);
+    this.landmarks = new Landmarks3D(sim.net);
     this.agentsView = new AgentsView(sim.net, sim.engine.cap, Math.min(sim.engine.cap, 16384));
     this.transit3d = new Transit3D(sim.net, sim.line);
     const b = networkBounds(sim.net);
@@ -87,6 +90,7 @@ export class Scene3D {
     );
     this.scene.add(this.city.group);
     this.scene.add(this.places3d.group);
+    this.scene.add(this.landmarks.group);
     this.scene.add(this.agentsView.group);
     this.scene.add(this.transit3d.group);
     this.scene.add(this.ambient.group);
@@ -103,19 +107,23 @@ export class Scene3D {
   setSimulation(sim: Simulation): void {
     this.scene.remove(this.city.group);
     this.scene.remove(this.places3d.group);
+    this.scene.remove(this.landmarks.group);
     this.scene.remove(this.agentsView.group);
     this.scene.remove(this.transit3d.group);
     this.city.dispose();
     disposeGroup(this.city.group);
     this.places3d.dispose();
+    this.landmarks.dispose();
     this.agentsView.dispose();
     this.transit3d.dispose();
     this.city = new CityMeshes(sim.net, sim.cfg);
     this.places3d = new PlacesView(sim.net, sim.cfg, sim.places);
+    this.landmarks = new Landmarks3D(sim.net);
     this.agentsView = new AgentsView(sim.net, sim.engine.cap, Math.min(sim.engine.cap, 16384));
     this.transit3d = new Transit3D(sim.net, sim.line);
     this.scene.add(this.city.group);
     this.scene.add(this.places3d.group);
+    this.scene.add(this.landmarks.group);
     this.scene.add(this.agentsView.group);
     this.scene.add(this.transit3d.group);
     this.clearTrace();
@@ -167,6 +175,7 @@ export class Scene3D {
     this.city.updateBuildings(sim.scheduler.workersAt, sim.scheduler.residentsAt, day);
     this.city.updateClosure(sim.arterialBridgeClosed());
     this.places3d.update(t, day);
+    this.landmarks.update(t);
     this.agentsView.update(sim);
     this.transit3d.update(sim.transit, t);
     this.ambient.update(t);

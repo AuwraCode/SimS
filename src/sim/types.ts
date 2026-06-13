@@ -18,6 +18,8 @@ export interface NetNode {
   north: boolean;
   homeW: number;
   jobW: number;
+  /** Special land-use tag ("airport" | "port" | "village" | ""). */
+  district: string;
   signal: Signal | null;
   outEdges: number[];
   inEdges: number[];
