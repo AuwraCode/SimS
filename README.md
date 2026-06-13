@@ -8,6 +8,14 @@ softer evening peak, businesses lighting up as their workers physically
 arrive, residential windows glowing after dark, platform crowds swelling
 before 8 am, planes drifting overhead.
 
+It is also a place to *live in*: shops, malls, a hospital, gas stations,
+swimming pools, a casino and an amusement park (with a turning ferris wheel)
+dot the map; every agent carries a bank balance, earns wages for the hours
+they actually work, and spends it on errands and after-work outings. Cargo
+ships glide the river, fires break out and draw strobing fire engines and
+police, and an optional synthesized soundscape rises and falls with the
+traffic. None of it bends The One Rule.
+
 And then the city **learns**. Every night each agent reconciles what they
 experienced with what they expected; over successive days the morning peak
 visibly migrates earlier and commuters burned by the bridge queue shift onto
@@ -42,9 +50,10 @@ pnpm lint         # Biome
 URL params: `?seed=7` (new world), `?n=3000` (population), `?warp=8.25`
 (fast-forward to 08:15 — hours may span days: `?warp=104.9` boots straight
 into day 5 of the learned city), `?close=7.75` (auto-close the arterial
-bridge). UI: play/pause, 1–600× speed, seed/agents restart, **Trace random
-agent** (route line + beacon + live plan status — including "waiting on the
-platform"), and the acceptance experiment buttons (below).
+bridge). UI: play/pause, 1–600× speed, seed/agents restart (up to 200k),
+**Trace random agent** (route line + beacon + live plan status — now also
+home, balance and the day's errand/outing), **Sound** (opt-in synthesized
+audio), **Trigger fire**, and the acceptance experiment buttons (below).
 
 ## The One Rule
 
@@ -53,11 +62,15 @@ platform"), and the acceptance experiment buttons (below).
 exactly one place: each agent's sampled daily plan (`sim/population.ts`,
 distributions in `config.ts`). Compliant fixtures that read the clock without
 encoding demand: signal cycles and the tram timetable (identical, periodic,
-all 24 h — trams run empty at 3 am), the sun and ambient planes
+all 24 h — trams run empty at 3 am), the sun, ambient planes and river ships
 (astronomy/decor), and metric timestamps. Day-to-day learning reads no clock
-either — only each agent's own experienced vs expected commute. Audited:
-`sim/` contains no `Math.random`, no `Date.now`, no `Math.pow`, and no
-time-of-day constants outside the plan distributions.
+either — only each agent's own experienced vs expected commute. The Phase 4
+additions keep the rule too: POIs and the per-agent economy are sampled from
+their own dedicated streams (so the calibrated commute is bit-for-bit
+untouched), and fires ignite as a **memoryless Poisson hazard at a constant
+per-second rate** — risk that is flat across the day, coupled to nothing.
+Audited: `sim/` contains no `Math.random`, no `Date.now`, no `Math.pow`, and
+no time-of-day constants outside the plan distributions.
 
 ## How the day emerges
 
@@ -116,6 +129,41 @@ toward zero, and the tram's mode share grows monotonically from nothing —
 two relief valves (when to leave, what to ride) opened by nothing but
 individual experience. The ghost charts in the UI show it live.
 
+## City life (Phase 4) — a place to live, not just commute
+
+A land-use layer and a per-agent economy turn the commuter sandbox into a
+small living city, **without touching a single commute number** — everything
+new is sampled from dedicated rng streams (`sim/places.ts`) so the morning
+peak stays bit-for-bit identical (am peak 515 @ 08:28, both before and after).
+
+- **Points of interest** scatter across the grid: ~38 shops, malls, a
+  hospital, gas stations, swimming pools, an amusement park, a casino, and the
+  fire/police stations emergencies dispatch from. Each is a recognisable 3D
+  landmark (a turning ferris wheel, a shimmering pool, neon-trimmed casinos, a
+  red-cross hospital, canopied gas stations…).
+- **Money**: every agent opens with a bank balance and an hourly wage, banks
+  pay for the hours they *actually* worked (congestion that shortens the day
+  costs them), and spends it — midday errands now visit a real shop/mall/gas
+  station, and ~22% of drivers take an **after-work outing** to a pool, park,
+  mall or casino before heading home. A casino visit gambles the stake on a
+  stateless per-(agent, day) hash. Money is pure flavour: it never feeds back
+  into routing, so the peaks are untouched, yet it is fully deterministic and
+  folded into the state fingerprint.
+- **Emergencies**: fires ignite as a constant-rate Poisson hazard (a dedicated
+  stream — no clock coupling); the nearest fire station and police dispatch
+  responders that route to the scene at a hot speed, work it, and return. They
+  ride the roads but not the microscopic engine, so the calibrated traffic is
+  preserved. Trigger one yourself with the **Trigger fire** button.
+- **Ships & sound**: cargo ships cross the river on periodic loops (the
+  waterborne twin of the planes), and an opt-in Web Audio soundscape (traffic
+  rumble scaled by moving cars, a day/night pad, sirens during emergencies,
+  the odd horn) layers on top — all synthesized, no asset files.
+- **More agents**: the population ceiling is 200k (restart / +50% / boost);
+  the instanced renderer and walker pool scale with it.
+
+The richer 3D city also gains pitched roofs on houses, rooftop plant on
+towers, instanced trees and streetlights that warm up after dusk.
+
 ## Module map
 
 ```
@@ -124,6 +172,7 @@ src/config.ts               every tunable; the only time-of-day numbers are
 src/sim/rng.ts              mulberry32 + named sub-streams; full determinism
 src/sim/network.ts          procedural city: grid, river, 2 bridges, CBD/hubs
 src/sim/population.ts       agents & daily plans (THE only clock-coupled code)
+src/sim/places.ts           POIs (own stream) + per-agent economy/outings layer
 src/sim/routing.ts          Router: per-edge EMA of observed times + Dijkstra;
                             per-agent taste noise (anti-herding)
 src/sim/traffic/idm.ts      IDM + ballistic integrator (stop-within-step)
@@ -139,11 +188,15 @@ src/sim/learning.ts         nightly self-revision: expectations, buffers,
 src/sim/scheduler.ts        event-heap multi-day choreography: trip chains +
                             building occupancy (workersAt / residentsAt)
 src/sim/metrics.ts          per-minute series; per-kind trip delays
+src/sim/emergency.ts        Poisson fire hazard + fire/police dispatch (own
+                            stream; responders ride roads, not the engine)
 src/sim/sim.ts              framework-agnostic façade (probes, closures,
                             midnight rollover, hash)
-src/render3d/               three.js sandbox: city, buildings (occupancy
-                            lighting), instanced cars/pedestrians, tram +
-                            platform crowds, signals, planes, day/night sky
+src/audio.ts                opt-in Web Audio soundscape (synthesized; render-side)
+src/render3d/               three.js sandbox: city (roofs, trees, streetlights),
+                            POI landmarks, instanced cars/pedestrians, tram +
+                            platform crowds, signals, planes, ships, fires +
+                            strobing responders, day/night sky
 src/render/charts.ts        dependency-free 24h charts with multi-day ghosts
 scripts/headless.ts         Node runner: calibration, probes, experiments,
                             --days learning table, determinism hashes
@@ -168,6 +221,11 @@ deliberately uses `Math.random` — it must not touch sim streams.
   OSM import was deliberately left out — the procedurally calibrated city is
   this project's controlled experiment; swapping in a real map is a natural
   future extension of `sim/network.ts` alone.
+- **Phase 4 (done)**: a living city — POIs (shops, malls, hospital, gas,
+  pools, amusement park, casino), a per-agent economy (wages + errand/outing
+  spending), fires with fire/police response, river ships, a synthesized
+  soundscape, and a 200k-agent ceiling. All layered without disturbing the
+  calibrated commute (separate streams; morning peak unchanged).
 
 ## Assumptions & known simplifications
 
@@ -186,5 +244,15 @@ deliberately uses `Math.random` — it must not touch sim streams.
   fixed traits. Mode choice exists where both walk legs are ≤ 600 m of a stop.
 - Night driving averages ≈ 0.5× free-flow — the cost of signals on an empty
   network (infrastructure baseline), not congestion.
-- Building lights are render-side reads of occupancy counters; planes are
-  periodic decoration; arrival releases road capacity instantly.
+- Building lights are render-side reads of occupancy counters; planes and
+  ships are periodic decoration; arrival releases road capacity instantly.
+- Emergency vehicles route on the road network but do NOT enter the
+  microscopic engine — they never block cars (sirens parting traffic is
+  unmodelled), the deliberate price of keeping the calibrated traffic and the
+  acceptance experiments bit-for-bit intact.
+- Money is flavour only: it never gates a trip or feeds routing, so it cannot
+  change the emergent peaks; it is deterministic and in the state hash.
+- Errands now target a real POI (shop/mall/gas) and ~22% of drivers add an
+  after-work outing; these reshape midday/evening background traffic but not
+  the morning peak (they happen after it). POIs may visually overlap a
+  building since both sit in the same block.
